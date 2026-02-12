@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    env_file: .env
+    depends_on:
+      - supertokens
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+
+  supertokens:
+    image: supertokens/supertokens-postgresql:latest
+    depends_on:
+      - supertokens_db
+    environment:
+      POSTGRESQL_CONNECTION_URI: "postgresql://supertokens:supertokens@supertokens_db:5432/supertokens"
+      SUPERTOKENS_PORT: "3567"
+    ports:
+      - "3567:3567"
+    restart: unless-stopped
+
+  supertokens_db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: supertokens
+      POSTGRES_PASSWORD: supertokens
+      POSTGRES_DB: supertokens
+    volumes:
+      - supertokens_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+
+volumes:
+  supertokens_data:
