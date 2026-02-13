@@ -10,12 +10,13 @@ export class UsersController {
 
   @Post('clear-session')
   async clearSession(@Res() res: Response) {
+    const isProduction = process.env.NODE_ENV === 'production';
     // Forcefully clear all SuperTokens cookies
     const cookieOptions = {
       path: '/',
       httpOnly: true,
-      sameSite: 'lax' as const,
-      secure: false,
+      sameSite: isProduction ? ('none' as const) : ('lax' as const),
+      secure: isProduction,
     };
 
     res.clearCookie('sAccessToken', cookieOptions);

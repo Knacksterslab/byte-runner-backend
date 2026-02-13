@@ -4,6 +4,7 @@ import Session from 'supertokens-node/recipe/session';
 import { ConfigService } from '@nestjs/config';
 
 export function initSupertokens(configService: ConfigService) {
+  const isProduction = process.env.NODE_ENV === 'production';
   const apiDomain = configService.get<string>('app.apiDomain');
   const websiteDomain = configService.get<string>('app.websiteDomain');
   const appName = configService.get<string>('app.appName');
@@ -40,8 +41,8 @@ export function initSupertokens(configService: ConfigService) {
     recipeList: [
       EmailPassword.init(),
       Session.init({
-        cookieSameSite: 'lax',
-        cookieSecure: false,
+        cookieSameSite: isProduction ? ('none' as const) : ('lax' as const),
+        cookieSecure: isProduction,
         getTokenTransferMethod: () => 'cookie',
         override: {
           functions: (originalImplementation) => {

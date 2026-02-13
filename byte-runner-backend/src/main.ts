@@ -8,6 +8,8 @@ import { initSupertokens } from './auth/supertokens';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.set('trust proxy', 1);
   const configService = app.get(ConfigService);
 
   initSupertokens(configService);
