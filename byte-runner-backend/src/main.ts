@@ -69,33 +69,8 @@ async function bootstrap() {
   // Manual CORS middleware that runs FIRST
   app.use((req, res, next) => {
     const requestOrigin = normalizeOrigin(req.headers.origin);
-    const shouldTraceCors =
-      req.url?.startsWith('/users/me') ||
-      req.url?.startsWith('/leaderboard/current') ||
-      req.url?.startsWith('/contests/active') ||
-      req.url?.startsWith('/contests/admin') ||
-      req.url?.startsWith('/auth/session/refresh');
     
     const isAllowedOrigin = Boolean(requestOrigin && (allowedOrigins.has(requestOrigin) || isTrustedPublicOrigin(requestOrigin)));
-
-    if (shouldTraceCors) {
-      console.log(
-        JSON.stringify({
-          runId: 'contest-submit-debug',
-          hypothesisId: 'H5',
-          location: 'main.ts:cors',
-          message: 'CORS decision',
-          data: {
-            url: req.url,
-            method: req.method,
-            requestOrigin: requestOrigin || null,
-            isAllowedOrigin,
-            hasCookieHeader: Boolean(req.headers.cookie),
-          },
-          timestamp: Date.now(),
-        }),
-      );
-    }
 
     if (isAllowedOrigin && requestOrigin) {
       res.header('Access-Control-Allow-Origin', requestOrigin);
@@ -115,6 +90,39 @@ async function bootstrap() {
 
   // SuperTokens middleware
   app.use((req, res, next) => {
+    const traceRefresh = req.url?.startsWith('/auth/session/refresh');
+    if (traceRefresh) {
+      const originalEnd = res.end;
+      res.end = function (...args: any[]) {
+        try {
+          const setCookieHeader = res.getHeader('set-cookie');
+          const setCookieCount = Array.isArray(setCookieHeader)
+            ? setCookieHeader.length
+            : setCookieHeader
+              ? 1
+              : 0;
+          console.log(
+            JSON.stringify({
+              runId: 'contest-submit-debug',
+              hypothesisId: 'H6',
+              location: 'main.ts:refresh-response',
+              message: 'Refresh response headers',
+              data: {
+                statusCode: res.statusCode,
+                origin: req.headers.origin || null,
+                hasCookieHeaderOnRequest: Boolean(req.headers.cookie),
+                setCookieCount,
+              },
+              timestamp: Date.now(),
+            }),
+          );
+        } catch {
+          // Ignore debug logging errors
+        }
+        return originalEnd.apply(this, args as any);
+      } as any;
+    }
+
     if (req.url?.startsWith('/auth')) {
       const fs = require('fs');
       const logEntry = JSON.stringify({runId:'backend-debug',location:'main.ts:before-supertokens',message:'Auth request received',data:{url:req.url,method:req.method,headers:{rid:req.headers.rid,fdiVersion:req.headers['fdi-version'],stAuthMode:req.headers['st-auth-mode']},origin:req.headers.origin},timestamp:Date.now()}) + '\n';
