@@ -21,13 +21,48 @@ async function bootstrap() {
   const configLog = JSON.stringify({runId:'backend-debug',location:'main.ts:bootstrap',message:'SuperTokens initialized',data:{apiDomain,websiteDomain,apiBasePath:configService.get('supertokens.apiBasePath'),connectionUri:configService.get('supertokens.connectionUri')?.substring(0,30)+'...'},timestamp:Date.now()}) + '\n';
   fs.appendFileSync('c:\\Users\\futur\\Projects\\chap\\.cursor\\debug.log', configLog);
 
+  const normalizeOrigin = (value?: string): string | null => {
+    if (!value) return null;
+    try {
+      return new URL(value).origin;
+    } catch {
+      return value.replace(/\/+$/, '');
+    }
+  };
+
+  const configuredOrigins = (websiteDomain || '')
+    .split(',')
+    .map((origin) => normalizeOrigin(origin.trim()))
+    .filter((origin): origin is string => Boolean(origin));
+
+  const allowedOrigins = new Set<string>([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    ...configuredOrigins,
+  ]);
+
+  for (const origin of [...allowedOrigins]) {
+    try {
+      const parsed = new URL(origin);
+      if (parsed.hostname.startsWith('www.')) {
+        parsed.hostname = parsed.hostname.replace(/^www\./, '');
+        allowedOrigins.add(parsed.origin);
+      } else {
+        parsed.hostname = `www.${parsed.hostname}`;
+        allowedOrigins.add(parsed.origin);
+      }
+    } catch {
+      // Ignore malformed origin entries.
+    }
+  }
+
   // Manual CORS middleware that runs FIRST
   app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    const allowedOrigins = [websiteDomain, 'http://localhost:3000'];
+    const requestOrigin = normalizeOrigin(req.headers.origin);
     
-    if (origin && allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
+    if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+      res.header('Access-Control-Allow-Origin', requestOrigin);
+      res.header('Vary', 'Origin');
       res.header('Access-Control-Allow-Credentials', 'true');
       res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
       res.header('Access-Control-Allow-Headers', ['content-type', 'authorization', ...SuperTokens.getAllCORSHeaders()].join(', '));
