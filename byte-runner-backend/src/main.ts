@@ -69,8 +69,35 @@ async function bootstrap() {
   // Manual CORS middleware that runs FIRST
   app.use((req, res, next) => {
     const requestOrigin = normalizeOrigin(req.headers.origin);
+    const shouldTraceCors =
+      req.url?.startsWith('/users/me') ||
+      req.url?.startsWith('/leaderboard/current') ||
+      req.url?.startsWith('/contests/active') ||
+      req.url?.startsWith('/contests/admin') ||
+      req.url?.startsWith('/auth/session/refresh');
     
-    if (requestOrigin && (allowedOrigins.has(requestOrigin) || isTrustedPublicOrigin(requestOrigin))) {
+    const isAllowedOrigin = Boolean(requestOrigin && (allowedOrigins.has(requestOrigin) || isTrustedPublicOrigin(requestOrigin)));
+
+    if (shouldTraceCors) {
+      console.log(
+        JSON.stringify({
+          runId: 'contest-submit-debug',
+          hypothesisId: 'H5',
+          location: 'main.ts:cors',
+          message: 'CORS decision',
+          data: {
+            url: req.url,
+            method: req.method,
+            requestOrigin: requestOrigin || null,
+            isAllowedOrigin,
+            hasCookieHeader: Boolean(req.headers.cookie),
+          },
+          timestamp: Date.now(),
+        }),
+      );
+    }
+
+    if (isAllowedOrigin && requestOrigin) {
       res.header('Access-Control-Allow-Origin', requestOrigin);
       res.header('Vary', 'Origin');
       res.header('Access-Control-Allow-Credentials', 'true');
