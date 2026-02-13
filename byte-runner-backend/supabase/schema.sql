@@ -50,6 +50,7 @@ create table if not exists public.contests (
   description text,
   start_date timestamptz not null,
   end_date timestamptz not null,
+  contest_timezone text not null default 'UTC',
   status text not null default 'upcoming',
   prize_pool jsonb,
   rules jsonb,
@@ -57,6 +58,9 @@ create table if not exists public.contests (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.contests
+  add column if not exists contest_timezone text not null default 'UTC';
 
 create index if not exists contests_status_idx on public.contests (status);
 create index if not exists contests_dates_idx on public.contests (start_date, end_date);

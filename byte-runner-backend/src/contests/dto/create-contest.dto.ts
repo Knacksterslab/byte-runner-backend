@@ -16,6 +16,10 @@ export class CreateContestDto {
 
   @IsString()
   @IsOptional()
+  contestTimezone?: string;
+
+  @IsString()
+  @IsOptional()
   status?: 'upcoming' | 'active' | 'ended' | 'cancelled';
 
   @IsObject()

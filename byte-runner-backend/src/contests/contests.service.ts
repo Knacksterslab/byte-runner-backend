@@ -7,6 +7,7 @@ export interface Contest {
   description: string | null;
   start_date: string;
   end_date: string;
+  contest_timezone: string;
   status: 'upcoming' | 'active' | 'ended' | 'cancelled';
   prize_pool: Record<string, string> | null;
   rules: Record<string, any> | null;
@@ -246,6 +247,7 @@ export class ContestsService {
     description?: string;
     startDate: string;
     endDate: string;
+    contestTimezone?: string;
     status?: string;
     prizePool?: Record<string, string>;
     rules?: Record<string, any>;
@@ -258,6 +260,7 @@ export class ContestsService {
         description: data.description || null,
         start_date: data.startDate,
         end_date: data.endDate,
+        contest_timezone: data.contestTimezone || 'UTC',
         status: data.status || 'upcoming',
         prize_pool: data.prizePool || null,
         rules: data.rules || null,
@@ -281,6 +284,7 @@ export class ContestsService {
         ...(data.description !== undefined && { description: data.description }),
         ...(data.start_date && { start_date: data.start_date }),
         ...(data.end_date && { end_date: data.end_date }),
+        ...(data.contest_timezone && { contest_timezone: data.contest_timezone }),
         ...(data.status && { status: data.status }),
         ...(data.prize_pool !== undefined && { prize_pool: data.prize_pool }),
         ...(data.rules !== undefined && { rules: data.rules }),
