@@ -91,7 +91,9 @@ async function bootstrap() {
   // SuperTokens middleware
   app.use((req, res, next) => {
     const traceRefresh = req.url?.startsWith('/auth/session/refresh');
-    if (traceRefresh) {
+    const traceAdminCheck = req.url?.startsWith('/contests/admin/check');
+    
+    if (traceRefresh || traceAdminCheck) {
       const originalEnd = res.end;
       res.end = function (...args: any[]) {
         try {
@@ -101,17 +103,25 @@ async function bootstrap() {
             : setCookieHeader
               ? 1
               : 0;
+          const frontToken = res.getHeader('front-token');
+          const exposeHeaders = res.getHeader('access-control-expose-headers');
+          const location = traceRefresh ? 'main.ts:refresh-response' : 'main.ts:admin-check-response';
+          const message = traceRefresh ? 'Refresh response headers' : 'Admin check response headers';
           console.log(
             JSON.stringify({
               runId: 'contest-submit-debug',
-              hypothesisId: 'H6',
-              location: 'main.ts:refresh-response',
-              message: 'Refresh response headers',
+              hypothesisId: 'H7',
+              location,
+              message,
               data: {
+                url: req.url,
                 statusCode: res.statusCode,
                 origin: req.headers.origin || null,
                 hasCookieHeaderOnRequest: Boolean(req.headers.cookie),
                 setCookieCount,
+                hasFrontToken: Boolean(frontToken),
+                frontTokenPreview: typeof frontToken === 'string' ? frontToken.substring(0, 50) : null,
+                exposeHeadersPreview: typeof exposeHeaders === 'string' ? exposeHeaders.substring(0, 150) : null,
               },
               timestamp: Date.now(),
             }),
