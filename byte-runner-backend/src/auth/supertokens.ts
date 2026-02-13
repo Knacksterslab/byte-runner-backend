@@ -43,6 +43,7 @@ export function initSupertokens(configService: ConfigService) {
       Session.init({
         cookieSameSite: isProduction ? ('none' as const) : ('lax' as const),
         cookieSecure: isProduction,
+        antiCsrf: isProduction ? 'NONE' : 'VIA_TOKEN',
         getTokenTransferMethod: () => 'cookie',
         override: {
           functions: (originalImplementation) => {
