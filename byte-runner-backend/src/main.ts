@@ -56,11 +56,21 @@ async function bootstrap() {
     }
   }
 
+  const isTrustedPublicOrigin = (origin: string): boolean => {
+    try {
+      const parsed = new URL(origin);
+      const hostname = parsed.hostname.toLowerCase();
+      return hostname === 'byterunner.co' || hostname.endsWith('.byterunner.co');
+    } catch {
+      return false;
+    }
+  };
+
   // Manual CORS middleware that runs FIRST
   app.use((req, res, next) => {
     const requestOrigin = normalizeOrigin(req.headers.origin);
     
-    if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    if (requestOrigin && (allowedOrigins.has(requestOrigin) || isTrustedPublicOrigin(requestOrigin))) {
       res.header('Access-Control-Allow-Origin', requestOrigin);
       res.header('Vary', 'Origin');
       res.header('Access-Control-Allow-Credentials', 'true');
