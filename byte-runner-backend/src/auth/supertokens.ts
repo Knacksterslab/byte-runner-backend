@@ -22,7 +22,9 @@ export function initSupertokens(configService: ConfigService) {
     websiteDomain,
     apiBasePath,
     websiteBasePath,
-    connectionUri: connectionUri.substring(0, 40) + '...'
+    connectionUri: connectionUri.substring(0, 40) + '...',
+    apiKeyPresent: !!apiKey,
+    apiKeyLength: apiKey?.length || 0
   });
 
   SuperTokens.init({
@@ -30,6 +32,15 @@ export function initSupertokens(configService: ConfigService) {
     supertokens: {
       connectionURI: connectionUri,
       apiKey: apiKey || undefined,
+      networkInterceptor: (request, userContext) => {
+        console.log('🔍 [SuperTokens] API Call:', {
+          url: request.url,
+          method: request.method,
+          hasApiKey: !!request.headers?.['api-key'],
+          timestamp: new Date().toISOString()
+        });
+        return request;
+      },
     },
     appInfo: {
       appName,

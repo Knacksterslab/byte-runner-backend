@@ -25,36 +25,45 @@ export class ContestsController {
     return this.contestsService.getActiveContests();
   }
 
-  @Get(':id')
-  async getContest(@Param('id') id: string) {
-    const contest = await this.contestsService.getContestById(id);
+  @Get(':idOrSlug')
+  async getContest(@Param('idOrSlug') idOrSlug: string) {
+    const contest = await this.contestsService.getContestByIdOrSlug(idOrSlug);
     if (!contest) {
       return { error: 'Contest not found' };
     }
     return contest;
   }
 
-  @Get(':id/leaderboard')
+  @Get(':idOrSlug/leaderboard')
   async getContestLeaderboard(
-    @Param('id') contestId: string,
+    @Param('idOrSlug') idOrSlug: string,
     @Query('limit') limit?: string,
   ) {
     const parsedLimit = limit ? Math.min(Math.max(parseInt(limit, 10), 1), 100) : 100;
-    return this.contestsService.getContestLeaderboard(contestId, parsedLimit);
+    const contest = await this.contestsService.getContestByIdOrSlug(idOrSlug);
+    if (!contest) {
+      return { error: 'Contest not found' };
+    }
+    return this.contestsService.getContestLeaderboard(contest.id, parsedLimit);
   }
 
   @UseGuards(SupertokensGuard)
-  @Post(':id/enter')
+  @Post(':idOrSlug/enter')
   async enterContest(
     @Req() req: any,
-    @Param('id') contestId: string,
+    @Param('idOrSlug') idOrSlug: string,
     @Body() body: EnterContestDto,
   ) {
     const supertokensId = req.session.getUserId();
     const user = await this.usersService.getOrCreateUser(supertokensId);
 
+    const contest = await this.contestsService.getContestByIdOrSlug(idOrSlug);
+    if (!contest) {
+      return { error: 'Contest not found' };
+    }
+
     const entry = await this.contestsService.enterContest(
-      contestId,
+      contest.id,
       user.id,
       body.runId,
       body.score,
@@ -71,13 +80,18 @@ export class ContestsController {
   }
 
   @UseGuards(SupertokensGuard)
-  @Get(':id/my-entries')
-  async getMyEntries(@Req() req: any, @Param('id') contestId: string) {
+  @Get(':idOrSlug/my-entries')
+  async getMyEntries(@Req() req: any, @Param('idOrSlug') idOrSlug: string) {
     const supertokensId = req.session.getUserId();
     const user = await this.usersService.getOrCreateUser(supertokensId);
 
-    const entries = await this.contestsService.getUserEntries(contestId, user.id);
-    const rank = await this.contestsService.getUserRank(contestId, user.id);
+    const contest = await this.contestsService.getContestByIdOrSlug(idOrSlug);
+    if (!contest) {
+      return { error: 'Contest not found' };
+    }
+
+    const entries = await this.contestsService.getUserEntries(contest.id, user.id);
+    const rank = await this.contestsService.getUserRank(contest.id, user.id);
 
     return {
       entries,
@@ -91,6 +105,7 @@ export class ContestsController {
   async createContest(@Body() body: CreateContestDto) {
     const contest = await this.contestsService.createContest({
       name: body.name,
+      slug: body.slug,
       description: body.description,
       startDate: body.startDate,
       endDate: body.endDate,
@@ -114,6 +129,7 @@ export class ContestsController {
 
     const contest = await this.contestsService.updateContest(id, {
       ...(body.name && { name: body.name }),
+      ...(body.slug && { slug: body.slug }),
       ...(body.description !== undefined && { description: body.description }),
       ...(body.startDate && { start_date: body.startDate }),
       ...(body.endDate && { end_date: body.endDate }),

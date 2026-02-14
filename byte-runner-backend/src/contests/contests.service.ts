@@ -4,6 +4,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 export interface Contest {
   id: string;
   name: string;
+  slug: string;
   description: string | null;
   start_date: string;
   end_date: string;
@@ -82,6 +83,40 @@ export class ContestsService {
     }
 
     return data as Contest | null;
+  }
+
+  async getContestBySlug(slug: string): Promise<Contest | null> {
+    const { data, error } = await this.client
+      .from('contests')
+      .select('*')
+      .eq('slug', slug)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw new BadRequestException('Failed to fetch contest by slug.');
+    }
+
+    return data as Contest | null;
+  }
+
+  async getContestByIdOrSlug(idOrSlug: string): Promise<Contest | null> {
+    // Check if it's a UUID (36 characters with hyphens)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+    
+    if (isUuid) {
+      return this.getContestById(idOrSlug);
+    } else {
+      return this.getContestBySlug(idOrSlug);
+    }
+  }
+
+  private generateSlug(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
   }
 
   async enterContest(
@@ -244,6 +279,7 @@ export class ContestsService {
   // Admin functions
   async createContest(data: {
     name: string;
+    slug?: string;
     description?: string;
     startDate: string;
     endDate: string;
@@ -253,10 +289,14 @@ export class ContestsService {
     rules?: Record<string, any>;
     maxEntriesPerUser?: number;
   }): Promise<Contest> {
+    // Generate slug from name if not provided
+    const slug = data.slug || this.generateSlug(data.name);
+
     const { data: contest, error } = await this.client
       .from('contests')
       .insert({
         name: data.name,
+        slug: slug,
         description: data.description || null,
         start_date: data.startDate,
         end_date: data.endDate,
@@ -281,6 +321,7 @@ export class ContestsService {
       .from('contests')
       .update({
         ...(data.name && { name: data.name }),
+        ...(data.slug && { slug: data.slug }),
         ...(data.description !== undefined && { description: data.description }),
         ...(data.start_date && { start_date: data.start_date }),
         ...(data.end_date && { end_date: data.end_date }),

@@ -62,6 +62,34 @@ create table if not exists public.contests (
 alter table public.contests
   add column if not exists contest_timezone text not null default 'UTC';
 
+-- Add slug column for friendly URLs
+alter table public.contests
+  add column if not exists slug text;
+
+-- Function to generate slug from contest name
+create or replace function generate_contest_slug(contest_name text)
+returns text as $$
+begin
+  return lower(
+    regexp_replace(
+      regexp_replace(contest_name, '[^a-zA-Z0-9\s-]', '', 'g'),
+      '\s+', '-', 'g'
+    )
+  );
+end;
+$$ language plpgsql immutable;
+
+-- Backfill existing contests with slugs (safe for re-run)
+update public.contests
+set slug = generate_contest_slug(name)
+where slug is null;
+
+-- Make slug required and unique
+alter table public.contests
+  alter column slug set not null;
+
+create unique index if not exists contests_slug_idx on public.contests (slug);
+
 create index if not exists contests_status_idx on public.contests (status);
 create index if not exists contests_dates_idx on public.contests (start_date, end_date);
 
