@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ContestsController } from './contests.controller';
 import { ContestsService } from './contests.service';
 import { ContestsCron } from './contests.cron';
@@ -7,7 +7,7 @@ import { PrizeClaimsModule } from '../prize-claims/prize-claims.module';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [UsersModule, PrizeClaimsModule, ConfigModule],
+  imports: [UsersModule, forwardRef(() => PrizeClaimsModule), ConfigModule],
   controllers: [ContestsController],
   providers: [ContestsService, ContestsCron],
   exports: [ContestsService],

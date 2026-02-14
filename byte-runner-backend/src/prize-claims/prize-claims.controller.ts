@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, forwardRef, Get, Inject, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { SupertokensGuard } from '../auth/supertokens.guard';
 import { PrizeClaimsService } from './prize-claims.service';
 import { UsersService } from '../users/users.service';
+import { ContestsService } from '../contests/contests.service';
 import { SubmitClaimDto } from './dto/submit-claim.dto';
 
 @Controller('prize-claims')
@@ -9,6 +10,8 @@ export class PrizeClaimsController {
   constructor(
     private readonly prizeClaimsService: PrizeClaimsService,
     private readonly usersService: UsersService,
+    @Inject(forwardRef(() => ContestsService))
+    private readonly contestsService: ContestsService,
   ) {}
 
   @UseGuards(SupertokensGuard)
@@ -58,14 +61,20 @@ export class PrizeClaimsController {
   }
 
   @UseGuards(SupertokensGuard)
-  @Get('contest/:contestId/my-claim')
+  @Get('contest/:contestIdOrSlug/my-claim')
   async getMyClaimForContest(
     @Req() req: any,
-    @Param('contestId') contestId: string,
+    @Param('contestIdOrSlug') contestIdOrSlug: string,
   ) {
     const supertokensId = req.session.getUserId();
     const user = await this.usersService.getOrCreateUser(supertokensId);
 
-    return this.prizeClaimsService.getUserClaimForContest(contestId, user.id);
+    // Resolve slug to UUID if needed
+    const contest = await this.contestsService.getContestByIdOrSlug(contestIdOrSlug);
+    if (!contest) {
+      throw new BadRequestException('Contest not found');
+    }
+
+    return this.prizeClaimsService.getUserClaimForContest(contest.id, user.id);
   }
 }

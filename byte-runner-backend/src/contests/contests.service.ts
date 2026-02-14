@@ -387,6 +387,19 @@ export class ContestsService {
     return (data || []) as Contest[];
   }
 
+  async getEndedContests(): Promise<Contest[]> {
+    const { data, error } = await this.client
+      .from('contests')
+      .select('*')
+      .eq('status', 'ended');
+
+    if (error) {
+      throw new BadRequestException('Failed to fetch ended contests.');
+    }
+
+    return (data || []) as Contest[];
+  }
+
   getPrizeForRank(rank: number, prizePool: Record<string, string> | null): string | null {
     if (!prizePool) return null;
 
