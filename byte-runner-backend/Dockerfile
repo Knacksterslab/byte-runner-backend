@@ -13,8 +13,8 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Verify build succeeded
-RUN ls -la dist/ && test -f dist/main.js
+# Verify build succeeded (NestJS outputs to dist/src/main.js)
+RUN ls -la dist/ && ls -la dist/src/ && test -f dist/src/main.js
 
 FROM node:20-alpine
 WORKDIR /app
@@ -30,5 +30,5 @@ COPY --from=builder /app/dist ./dist
 
 ENV NODE_ENV=production
 
-# Start the application
-CMD ["node", "dist/main"]
+# Start the application (NestJS outputs to dist/src/main.js)
+CMD ["node", "dist/src/main"]
