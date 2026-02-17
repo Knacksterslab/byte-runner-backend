@@ -24,6 +24,9 @@ import { SharesModule } from './shares/shares.module';
 import { ContestsModule } from './contests/contests.module';
 import { PrizeClaimsModule } from './prize-claims/prize-claims.module';
 import { BadgesModule } from './badges/badges.module';
+import { BalanceModule } from './balance/balance.module';
+import { HourlyChallengesModule } from './hourly-challenges/hourly-challenges.module';
+import { FraudPreventionModule } from './fraud-prevention/fraud-prevention.module';
 
 @Module({
   imports: [
@@ -52,6 +55,9 @@ import { BadgesModule } from './badges/badges.module';
     ContestsModule,
     PrizeClaimsModule,
     BadgesModule,
+    FraudPreventionModule,
+    BalanceModule,
+    HourlyChallengesModule,
   ],
   controllers: [AppController],
   providers: [

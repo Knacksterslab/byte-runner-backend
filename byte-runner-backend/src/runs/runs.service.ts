@@ -38,6 +38,52 @@ export class RunsService {
     return this.supabaseService.getClient();
   }
 
+  async getUserStats(userId: string) {
+    // Get user's best run
+    const { data: bestRun } = await this.client
+      .from('runs')
+      .select('score, distance')
+      .eq('user_id', userId)
+      .order('score', { ascending: false })
+      .order('distance', { ascending: false })
+      .limit(1)
+      .single();
+
+    // Get total runs count
+    const { count: totalRuns } = await this.client
+      .from('runs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    // Get user's rank by comparing to leaderboard (best runs per user in last 24h)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    
+    const { data: allBestRuns } = await this.client
+      .from('runs')
+      .select('user_id, score, distance')
+      .gte('created_at', twentyFourHoursAgo)
+      .order('score', { ascending: false })
+      .order('distance', { ascending: false });
+
+    // Deduplicate to get best score per user
+    const userBestScores = new Map();
+    for (const run of allBestRuns || []) {
+      if (!userBestScores.has(run.user_id)) {
+        userBestScores.set(run.user_id, run);
+      }
+    }
+
+    const rankedUsers = Array.from(userBestScores.values());
+    const userRankIndex = rankedUsers.findIndex(r => r.user_id === userId);
+
+    return {
+      bestScore: bestRun?.score || 0,
+      bestDistance: bestRun?.distance || 0,
+      rank: userRankIndex >= 0 ? userRankIndex + 1 : null,
+      totalRuns: totalRuns || 0
+    };
+  }
+
   startRun(supertokensId: string) {
     const payload: RunTokenPayload = {
       sub: supertokensId,

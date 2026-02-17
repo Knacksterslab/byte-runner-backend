@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { SupertokensGuard } from '../auth/supertokens.guard';
 import { FinishRunDto } from './dto/finish-run.dto';
@@ -21,5 +21,24 @@ export class RunsController {
   finishRun(@Req() req: any, @Body() body: FinishRunDto) {
     const supertokensId = req.session.getUserId();
     return this.runsService.finishRun(supertokensId, body);
+  }
+
+  @UseGuards(SupertokensGuard)
+  @Get('my-stats')
+  async getMyStats(@Req() req: any) {
+    const supertokensId = req.session.getUserId();
+    
+    // Get user_id from supertokens_id
+    const { data: user } = await this.runsService['client']
+      .from('users')
+      .select('id')
+      .eq('supertokens_id', supertokensId)
+      .single();
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    return this.runsService.getUserStats(user.id);
   }
 }

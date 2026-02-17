@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ContestsService } from './contests.service';
 import { PrizeClaimsService } from '../prize-claims/prize-claims.service';
+import { BalanceService } from '../balance/balance.service';
 
 @Injectable()
 export class ContestsCron {
@@ -10,7 +11,15 @@ export class ContestsCron {
   constructor(
     private readonly contestsService: ContestsService,
     private readonly prizeClaimsService: PrizeClaimsService,
+    private readonly balanceService: BalanceService,
   ) {}
+
+  private parsePrizeAmount(prizeString: string): number {
+    // Parse "$25" -> 2500 cents, "$1.50" -> 150 cents
+    const match = prizeString.match(/\$?([\d.]+)/);
+    if (!match) return 0;
+    return Math.round(parseFloat(match[1]) * 100);
+  }
 
   // Runs every 5 minutes to quickly detect contest status changes
   @Cron(CronExpression.EVERY_5_MINUTES)
@@ -144,17 +153,34 @@ export class ContestsCron {
             );
 
             if (existingClaim) {
-              this.logger.log(`✓ Prize claim already exists for ${entry.username}`);
+              this.logger.log(`✓ Prize already awarded to ${entry.username}`);
             } else {
-              this.logger.log(`🔧 Creating prize claim for ${entry.username}...`);
-              await this.prizeClaimsService.createPrizeClaim(
-                contestId,
-                entry.userId,
-                entry.rank,
-                prize
-              );
-              claimsCreated++;
-              this.logger.log(`✅ Recovered prize claim for ${entry.username} in "${contestName}" (Rank #${entry.rank}, Prize: ${prize})`);
+              this.logger.log(`🔧 Awarding prize to ${entry.username}...`);
+              
+              // Parse prize amount and add to balance
+              const amountCents = this.parsePrizeAmount(prize);
+              if (amountCents > 0) {
+                await this.balanceService.addBalance(
+                  entry.userId,
+                  amountCents,
+                  'contest_prize',
+                  contestId,
+                  `Contest Prize - "${contestName}" (Rank #${entry.rank}): ${prize}`
+                );
+                
+                // Still create prize claim record for tracking, but it's informational
+                await this.prizeClaimsService.createPrizeClaim(
+                  contestId,
+                  entry.userId,
+                  entry.rank,
+                  prize
+                );
+                
+                claimsCreated++;
+                this.logger.log(`✅ Awarded ${prize} to ${entry.username} in "${contestName}" (Rank #${entry.rank})`);
+              } else {
+                this.logger.warn(`⚠️ Could not parse prize amount: ${prize}`);
+              }
             }
           } catch (error) {
             this.logger.error(`❌ Failed to create claim for ${entry.username}:`, error);
@@ -217,17 +243,34 @@ export class ContestsCron {
             );
 
             if (!existingClaim) {
-              this.logger.log(`💰 Creating prize claim for ${entry.username}...`);
-              await this.prizeClaimsService.createPrizeClaim(
-                contestId,
-                entry.userId,
-                entry.rank,
-                prize
-              );
-              claimsCreated++;
-              this.logger.log(`✅ Created prize claim for ${entry.username} (Rank #${entry.rank}, Prize: ${prize})`);
+              this.logger.log(`💰 Awarding prize to ${entry.username}...`);
+              
+              // Parse prize amount and add to balance
+              const amountCents = this.parsePrizeAmount(prize);
+              if (amountCents > 0) {
+                await this.balanceService.addBalance(
+                  entry.userId,
+                  amountCents,
+                  'contest_prize',
+                  contestId,
+                  `Contest Prize - "${contestName}" (Rank #${entry.rank}): ${prize}`
+                );
+                
+                // Still create prize claim record for tracking, but it's informational
+                await this.prizeClaimsService.createPrizeClaim(
+                  contestId,
+                  entry.userId,
+                  entry.rank,
+                  prize
+                );
+                
+                claimsCreated++;
+                this.logger.log(`✅ Awarded ${prize} to ${entry.username} (Rank #${entry.rank})`);
+              } else {
+                this.logger.warn(`⚠️ Could not parse prize amount: ${prize}`);
+              }
             } else {
-              this.logger.log(`✓ Prize claim already exists for ${entry.username}`);
+              this.logger.log(`✓ Prize already awarded to ${entry.username}`);
             }
           } catch (error) {
             this.logger.error(`❌ Failed to create claim for ${entry.username}:`, error);
