@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import SuperTokens from 'supertokens-node';
 import { SupabaseService } from '../supabase/supabase.service';
+import { assertNoDbError, assertNoDbErrorExceptNotFound } from '../common/utils/db.util';
 
 export interface UserRecord {
   id: string;
@@ -23,8 +24,7 @@ export class UsersService {
   private async getEmailForUser(supertokensId: string): Promise<string | null> {
     try {
       const user = await SuperTokens.getUser(supertokensId);
-      const email = user?.emails?.[0];
-      return email || null;
+      return user?.emails?.[0] ?? null;
     } catch {
       return null;
     }
@@ -38,9 +38,7 @@ export class UsersService {
       .eq('supertokens_id', supertokensId)
       .single();
 
-    if (error && error.code !== 'PGRST116') {
-      throw new BadRequestException(error.message || 'Failed to fetch user.');
-    }
+    assertNoDbErrorExceptNotFound(error, 'Failed to fetch user');
 
     if (existing) {
       if (email && existing.email !== email) {
@@ -51,10 +49,7 @@ export class UsersService {
           .select('*')
           .single();
 
-        if (updateError || !updated) {
-          throw new BadRequestException(updateError?.message || 'Failed to update user email.');
-        }
-
+        assertNoDbError(updateError, 'Failed to update user email');
         return updated as UserRecord;
       }
       return existing as UserRecord;
@@ -66,42 +61,31 @@ export class UsersService {
       .select('*')
       .single();
 
-    if (insertError || !created) {
-      throw new BadRequestException(insertError?.message || 'Failed to create user.');
-    }
-
+    assertNoDbError(insertError, 'Failed to create user');
     return created as UserRecord;
   }
 
-  async setUsername(supertokensId: string, username: string): Promise<UserRecord> {
+  async setUsername(userId: string, username: string): Promise<UserRecord> {
     const normalized = username.trim();
-    if (!normalized) {
-      throw new BadRequestException('Username is required.');
-    }
+    if (!normalized) throw new BadRequestException('Username is required.');
 
     const { data: taken } = await this.client
       .from('users')
       .select('id')
       .ilike('username', normalized)
+      .not('id', 'eq', userId)
       .limit(1);
 
-    if (taken && taken.length > 0) {
-      throw new BadRequestException('Username is already taken.');
-    }
-
-    const user = await this.getOrCreateUser(supertokensId);
+    if (taken && taken.length > 0) throw new BadRequestException('Username is already taken.');
 
     const { data: updated, error } = await this.client
       .from('users')
       .update({ username: normalized })
-      .eq('id', user.id)
+      .eq('id', userId)
       .select('*')
       .single();
 
-    if (error || !updated) {
-      throw new BadRequestException('Failed to update username.');
-    }
-
+    assertNoDbError(error, 'Failed to update username');
     return updated as UserRecord;
   }
 }

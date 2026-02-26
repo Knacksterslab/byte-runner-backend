@@ -1,133 +1,107 @@
-import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { SupertokensGuard } from '../auth/supertokens.guard';
-import { BalanceService } from './balance.service';
+import { AdminGuard } from '../auth/admin.guard';
+import { BalanceService, BalanceTransaction } from './balance.service';
+import { WithdrawalService } from './withdrawal.service';
+import { CurrentUserId } from '../common/decorators/current-user.decorator';
 import { SubmitWithdrawalDto } from './dto/submit-withdrawal.dto';
+
+function mapTransaction(t: BalanceTransaction) {
+  return {
+    id: t.id,
+    amountCents: t.amount_cents,
+    type: t.type,
+    description: t.description,
+    createdAt: t.created_at,
+  };
+}
 
 @Controller('balance')
 export class BalanceController {
-  constructor(private readonly balanceService: BalanceService) {}
+  constructor(
+    private readonly balanceService: BalanceService,
+    private readonly withdrawalService: WithdrawalService,
+  ) {}
 
   @UseGuards(SupertokensGuard)
   @Get('me')
-  async getMyBalance(@Req() req: any) {
-    const supertokensId = req.session.getUserId();
-    // We need to get the user_id from supertokens_id
-    const { data: user } = await this.balanceService['client']
-      .from('users')
-      .select('id')
-      .eq('supertokens_id', supertokensId)
-      .single();
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const balanceInfo = await this.balanceService.getUserBalance(user.id);
+  async getMyBalance(@CurrentUserId() userId: string) {
+    const info = await this.balanceService.getUserBalance(userId);
     return {
-      balanceCents: balanceInfo.balance_cents,
-      pendingWithdrawalsCents: balanceInfo.pending_withdrawals_cents,
-      totalEarnedCents: balanceInfo.total_earned_cents,
-      recentTransactions: balanceInfo.transactions.map(t => ({
-        id: t.id,
-        amountCents: t.amount_cents,
-        type: t.type,
-        description: t.description,
-        createdAt: t.created_at
-      }))
+      balanceCents: info.balance_cents,
+      pendingWithdrawalsCents: info.pending_withdrawals_cents,
+      totalEarnedCents: info.total_earned_cents,
+      recentTransactions: info.transactions.map(mapTransaction),
     };
   }
 
   @UseGuards(SupertokensGuard)
   @Get('transactions')
   async getTransactions(
-    @Req() req: any,
+    @CurrentUserId() userId: string,
     @Query('limit') limit?: string,
-    @Query('offset') offset?: string
+    @Query('offset') offset?: string,
   ) {
-    const supertokensId = req.session.getUserId();
-    const { data: user } = await this.balanceService['client']
-      .from('users')
-      .select('id')
-      .eq('supertokens_id', supertokensId)
-      .single();
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
     const transactions = await this.balanceService.getTransactions(
-      user.id,
-      limit ? parseInt(limit) : 50,
-      offset ? parseInt(offset) : 0
+      userId,
+      limit ? parseInt(limit, 10) : 50,
+      offset ? parseInt(offset, 10) : 0,
     );
-
-    return {
-      transactions: transactions.map(t => ({
-        id: t.id,
-        amountCents: t.amount_cents,
-        type: t.type,
-        description: t.description,
-        createdAt: t.created_at
-      }))
-    };
+    return { transactions: transactions.map(mapTransaction) };
   }
 
   @UseGuards(SupertokensGuard)
   @Post('withdraw')
-  async submitWithdrawal(@Req() req: any, @Body() body: SubmitWithdrawalDto) {
-    const supertokensId = req.session.getUserId();
-    const { data: user } = await this.balanceService['client']
-      .from('users')
-      .select('id')
-      .eq('supertokens_id', supertokensId)
-      .single();
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const withdrawal = await this.balanceService.submitWithdrawal(
-      user.id,
+  async submitWithdrawal(@CurrentUserId() userId: string, @Body() body: SubmitWithdrawalDto) {
+    const withdrawal = await this.withdrawalService.submitWithdrawal(
+      userId,
       body.amountCents,
       body.paymentMethod,
-      body.contactInfo
+      body.contactInfo,
     );
-
     return {
       id: withdrawal.id,
       amountCents: withdrawal.amount_cents,
       paymentMethod: withdrawal.payment_method,
       status: withdrawal.status,
-      submittedAt: withdrawal.submitted_at
+      submittedAt: withdrawal.submitted_at,
     };
   }
 
   @UseGuards(SupertokensGuard)
   @Get('withdrawals')
-  async getMyWithdrawals(@Req() req: any) {
-    const supertokensId = req.session.getUserId();
-    const { data: user } = await this.balanceService['client']
-      .from('users')
-      .select('id')
-      .eq('supertokens_id', supertokensId)
-      .single();
-
-    if (!user) {
-      throw new Error('User not found');
-    }
-
-    const withdrawals = await this.balanceService.getWithdrawals(user.id);
-
+  async getMyWithdrawals(@CurrentUserId() userId: string) {
+    const withdrawals = await this.withdrawalService.getWithdrawals(userId);
     return {
-      withdrawals: withdrawals.map(w => ({
+      withdrawals: withdrawals.map((w) => ({
         id: w.id,
         amountCents: w.amount_cents,
         paymentMethod: w.payment_method,
         status: w.status,
         submittedAt: w.submitted_at,
         reviewedAt: w.reviewed_at,
-        notes: w.notes
-      }))
+        notes: w.notes,
+      })),
     };
+  }
+
+  @UseGuards(SupertokensGuard, AdminGuard)
+  @Get('admin/withdrawals')
+  getAllWithdrawals(@Query('status') status?: string) {
+    return this.withdrawalService.getAllWithdrawals(status);
+  }
+
+  @UseGuards(SupertokensGuard, AdminGuard)
+  @Post('admin/process-usdt')
+  processAllUsdt() {
+    return this.withdrawalService.processAllApprovedUsdtWithdrawals();
+  }
+
+  @UseGuards(SupertokensGuard, AdminGuard)
+  @Post('admin/process-usdt/:id')
+  processUsdt(@Req() req: any) {
+    const id = req.params.id;
+    if (!id) throw new BadRequestException('Missing withdrawal id');
+    return this.withdrawalService.processUsdtWithdrawal(id);
   }
 }

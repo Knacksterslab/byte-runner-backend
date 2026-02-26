@@ -14,33 +14,14 @@ export function initSupertokens(configService: ConfigService) {
   const websiteBasePath = configService.get<string>('supertokens.websiteBasePath');
 
   if (!apiDomain || !websiteDomain || !appName || !connectionUri) {
-    throw new Error('Supertokens configuration is missing.');
+    throw new Error('SuperTokens configuration is missing.');
   }
-
-  console.log('🔐 SuperTokens Config:', {
-    apiDomain,
-    websiteDomain,
-    apiBasePath,
-    websiteBasePath,
-    connectionUri: connectionUri.substring(0, 40) + '...',
-    apiKeyPresent: !!apiKey,
-    apiKeyLength: apiKey?.length || 0
-  });
 
   SuperTokens.init({
     framework: 'express',
     supertokens: {
       connectionURI: connectionUri,
       apiKey: apiKey || undefined,
-      networkInterceptor: (request, userContext) => {
-        console.log('🔍 [SuperTokens] API Call:', {
-          url: request.url,
-          method: request.method,
-          hasApiKey: !!request.headers?.['api-key'],
-          timestamp: new Date().toISOString()
-        });
-        return request;
-      },
     },
     appInfo: {
       appName,
@@ -56,17 +37,6 @@ export function initSupertokens(configService: ConfigService) {
         cookieSecure: isProduction,
         antiCsrf: isProduction ? 'NONE' : 'VIA_TOKEN',
         getTokenTransferMethod: () => 'cookie',
-        override: {
-          functions: (originalImplementation) => {
-            return {
-              ...originalImplementation,
-              createNewSession: async function (input) {
-                console.log('🔐 Creating new session for user:', input.userId);
-                return originalImplementation.createNewSession(input);
-              },
-            };
-          },
-        },
       }),
     ],
   });

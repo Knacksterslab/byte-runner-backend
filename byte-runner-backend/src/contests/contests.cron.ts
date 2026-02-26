@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { daysAgo } from '../common/utils/date.util';
 import { ContestsService } from './contests.service';
+import { ContestsLeaderboardService } from './contests-leaderboard.service';
 import { PrizeClaimsService } from '../prize-claims/prize-claims.service';
 import { BalanceService } from '../balance/balance.service';
 
@@ -10,290 +12,125 @@ export class ContestsCron {
 
   constructor(
     private readonly contestsService: ContestsService,
+    private readonly leaderboardService: ContestsLeaderboardService,
     private readonly prizeClaimsService: PrizeClaimsService,
     private readonly balanceService: BalanceService,
   ) {}
 
   private parsePrizeAmount(prizeString: string): number {
-    // Parse "$25" -> 2500 cents, "$1.50" -> 150 cents
     const match = prizeString.match(/\$?([\d.]+)/);
-    if (!match) return 0;
-    return Math.round(parseFloat(match[1]) * 100);
+    return match ? Math.round(parseFloat(match[1]) * 100) : 0;
   }
 
-  // Runs every 5 minutes to quickly detect contest status changes
   @Cron(CronExpression.EVERY_5_MINUTES)
   async checkAndUpdateContests() {
-    this.logger.log('Running contest status check...');
-
     try {
-      // Start upcoming contests
       await this.startUpcomingContests();
-
-      // Finish expired contests
       await this.finishExpiredContests();
-
-      // Recover ended contests that may be missing prize claims
+      // Only re-check contests ended in last 7 days to avoid growing unbounded
       await this.recoverEndedContests();
     } catch (error) {
-      this.logger.error('Failed to check/update contests:', error);
+      this.logger.error('Contest status check failed:', error);
     }
   }
 
   private async startUpcomingContests() {
-    try {
-      const contestsToStart = await this.contestsService.getContestsToStart();
-
-      if (contestsToStart.length === 0) {
-        this.logger.log('No contests to start');
-        return;
+    const contests = await this.contestsService.getContestsToStart();
+    for (const contest of contests) {
+      try {
+        await this.contestsService.updateContest(contest.id, { status: 'active' });
+        this.logger.log(`Started contest: "${contest.name}" (${contest.id})`);
+      } catch (error) {
+        this.logger.error(`Failed to start contest ${contest.id}:`, error);
       }
-
-      this.logger.log(`Found ${contestsToStart.length} contest(s) to start`);
-
-      for (const contest of contestsToStart) {
-        try {
-          await this.contestsService.updateContest(contest.id, { status: 'active' });
-          this.logger.log(`✅ Started contest: "${contest.name}" (${contest.id})`);
-        } catch (error) {
-          this.logger.error(`Failed to start contest ${contest.id}:`, error);
-        }
-      }
-    } catch (error) {
-      this.logger.error('Failed to start upcoming contests:', error);
     }
   }
 
   private async finishExpiredContests() {
-    try {
-      const expiredContests = await this.contestsService.getExpiredActiveContests();
-
-      if (expiredContests.length === 0) {
-        this.logger.log('No expired contests found');
-        return;
-      }
-
-      this.logger.log(`Found ${expiredContests.length} expired contest(s)`);
-
-      for (const contest of expiredContests) {
-        await this.finishContest(contest.id, contest.name);
-      }
-    } catch (error) {
-      this.logger.error('Failed to finish expired contests:', error);
+    const expired = await this.contestsService.getExpiredActiveContests();
+    for (const contest of expired) {
+      await this.finishContest(contest.id, contest.name);
     }
   }
 
   private async recoverEndedContests() {
+    const ended = await this.contestsService.getEndedContests(daysAgo(7));
+    for (const contest of ended) {
+      await this.ensurePrizeClaimsExist(contest.id, contest.name);
+    }
+  }
+
+  /**
+   * Award prizes to eligible ranked entries that don't yet have a claim.
+   * Returns the number of new prizes awarded.
+   */
+  private async awardMissingPrizes(
+    contestId: string,
+    contestName: string,
+    prizePool: Record<string, string> | null,
+  ): Promise<number> {
+    if (!prizePool || Object.keys(prizePool).length === 0) return 0;
+
+    const leaderboard = await this.leaderboardService.getContestLeaderboard(contestId, 100);
+    let awarded = 0;
+
+    for (const entry of leaderboard) {
+      const prize = this.leaderboardService.getPrizeForRank(entry.rank, prizePool);
+      if (!prize) continue;
+
+      try {
+        const existingClaim = await this.prizeClaimsService.getUserClaimForContest(contestId, entry.userId);
+        if (existingClaim) continue;
+
+        const amountCents = this.parsePrizeAmount(prize);
+        if (amountCents <= 0) {
+          this.logger.warn(`Cannot parse prize amount "${prize}" for rank #${entry.rank} in "${contestName}"`);
+          continue;
+        }
+
+        await this.balanceService.addBalance(
+          entry.userId,
+          amountCents,
+          'contest_prize',
+          contestId,
+          `Contest Prize - "${contestName}" (Rank #${entry.rank}): ${prize}`,
+        );
+
+        await this.prizeClaimsService.createPrizeClaim(contestId, entry.userId, entry.rank, prize);
+        awarded++;
+        this.logger.log(`Awarded ${prize} to ${entry.username} (Rank #${entry.rank}) in "${contestName}"`);
+      } catch (error) {
+        this.logger.error(`Failed to award prize to ${entry.username} in "${contestName}":`, error);
+      }
+    }
+
+    return awarded;
+  }
+
+  private async finishContest(contestId: string, contestName: string) {
     try {
-      const endedContests = await this.contestsService.getEndedContests();
+      const contest = await this.contestsService.getContestById(contestId);
+      if (!contest) return;
 
-      if (endedContests.length === 0) {
-        this.logger.log('No ended contests to recover');
-        return;
-      }
-
-      this.logger.log(`Checking ${endedContests.length} ended contest(s) for missing prize claims...`);
-
-      for (const contest of endedContests) {
-        await this.ensurePrizeClaimsExist(contest.id, contest.name);
-      }
+      const awarded = await this.awardMissingPrizes(contestId, contestName, contest.prize_pool);
+      await this.contestsService.updateContest(contestId, { status: 'ended' });
+      this.logger.log(`Contest "${contestName}" finished. Awarded ${awarded} prize(s).`);
     } catch (error) {
-      this.logger.error('Failed to recover ended contests:', error);
+      this.logger.error(`Failed to finish contest "${contestName}" (${contestId}):`, error);
     }
   }
 
   private async ensurePrizeClaimsExist(contestId: string, contestName: string) {
     try {
-      this.logger.log(`🔍 Checking contest "${contestName}" (${contestId})...`);
-
-      // 1. Get contest details
       const contest = await this.contestsService.getContestById(contestId);
-      if (!contest) {
-        this.logger.warn(`⚠️ Contest "${contestName}" not found in database`);
-        return;
+      if (!contest) return;
+
+      const awarded = await this.awardMissingPrizes(contestId, contestName, contest.prize_pool);
+      if (awarded > 0) {
+        this.logger.log(`Recovered ${awarded} missing prize claim(s) for "${contestName}"`);
       }
-
-      this.logger.log(`📋 Contest found. Prize pool: ${JSON.stringify(contest.prize_pool)}`);
-
-      if (!contest.prize_pool || Object.keys(contest.prize_pool).length === 0) {
-        this.logger.log(`⏭️ Skipping "${contestName}" - no prizes configured`);
-        return;
-      }
-
-      // 2. Get final leaderboard
-      this.logger.log(`🏆 Fetching leaderboard for "${contestName}"...`);
-      const leaderboard = await this.contestsService.getContestLeaderboard(contestId, 100);
-      
-      this.logger.log(`📊 Leaderboard has ${leaderboard.length} entries`);
-      
-      if (leaderboard.length === 0) {
-        this.logger.log(`⏭️ Skipping "${contestName}" - no contest entries found`);
-        return;
-      }
-
-      // Log top 3 for debugging
-      const top3 = leaderboard.slice(0, 3).map(e => `${e.username} (Rank #${e.rank}, Score: ${e.score})`).join(', ');
-      this.logger.log(`🥇 Top entries: ${top3}`);
-
-      // 3. Create missing prize claims for winners
-      let claimsCreated = 0;
-      let claimsChecked = 0;
-      for (const entry of leaderboard) {
-        const prize = this.contestsService.getPrizeForRank(entry.rank, contest.prize_pool);
-        
-        if (prize) {
-          claimsChecked++;
-          this.logger.log(`🎁 Rank #${entry.rank} (${entry.username}) qualifies for prize: ${prize}`);
-          
-          try {
-            // Check if claim already exists to avoid duplicates
-            const existingClaim = await this.prizeClaimsService.getUserClaimForContest(
-              contestId,
-              entry.userId
-            );
-
-            if (existingClaim) {
-              this.logger.log(`✓ Prize already awarded to ${entry.username}`);
-            } else {
-              this.logger.log(`🔧 Awarding prize to ${entry.username}...`);
-              
-              // Parse prize amount and add to balance
-              const amountCents = this.parsePrizeAmount(prize);
-              if (amountCents > 0) {
-                await this.balanceService.addBalance(
-                  entry.userId,
-                  amountCents,
-                  'contest_prize',
-                  contestId,
-                  `Contest Prize - "${contestName}" (Rank #${entry.rank}): ${prize}`
-                );
-                
-                // Still create prize claim record for tracking, but it's informational
-                await this.prizeClaimsService.createPrizeClaim(
-                  contestId,
-                  entry.userId,
-                  entry.rank,
-                  prize
-                );
-                
-                claimsCreated++;
-                this.logger.log(`✅ Awarded ${prize} to ${entry.username} in "${contestName}" (Rank #${entry.rank})`);
-              } else {
-                this.logger.warn(`⚠️ Could not parse prize amount: ${prize}`);
-              }
-            }
-          } catch (error) {
-            this.logger.error(`❌ Failed to create claim for ${entry.username}:`, error);
-          }
-        }
-      }
-
-      if (claimsCreated > 0) {
-        this.logger.log(`🎉 Recovered ${claimsCreated} missing prize claims for "${contestName}"`);
-      } else if (claimsChecked > 0) {
-        this.logger.log(`✓ All ${claimsChecked} prize claims already exist for "${contestName}"`);
-      } else {
-        this.logger.log(`⏭️ No winners in prize pool range for "${contestName}"`);
-      }
-
     } catch (error) {
-      this.logger.error(`❌ Failed to ensure prize claims for contest ${contestId}:`, error);
-    }
-  }
-
-  private async finishContest(contestId: string, contestName: string) {
-    this.logger.log(`🏁 Finishing contest: ${contestName} (${contestId})`);
-
-    try {
-      // 1. Get contest details
-      const contest = await this.contestsService.getContestById(contestId);
-      if (!contest) {
-        this.logger.warn(`⚠️ Contest ${contestId} not found`);
-        return;
-      }
-
-      this.logger.log(`📋 Contest details: Prize pool: ${JSON.stringify(contest.prize_pool)}`);
-
-      // 2. Get final leaderboard
-      this.logger.log(`🏆 Fetching final leaderboard...`);
-      const leaderboard = await this.contestsService.getContestLeaderboard(contestId, 100);
-      
-      this.logger.log(`📊 Final leaderboard has ${leaderboard.length} entries`);
-      
-      if (leaderboard.length > 0) {
-        const top3 = leaderboard.slice(0, 3).map(e => `${e.username} (Rank #${e.rank}, Score: ${e.score})`).join(', ');
-        this.logger.log(`🥇 Top entries: ${top3}`);
-      }
-
-      // 3. Create prize claims for winners
-      let claimsCreated = 0;
-      let winnersChecked = 0;
-      for (const entry of leaderboard) {
-        const prize = this.contestsService.getPrizeForRank(entry.rank, contest.prize_pool);
-        
-        if (prize) {
-          winnersChecked++;
-          this.logger.log(`🎁 Rank #${entry.rank} (${entry.username}) qualifies for prize: ${prize}`);
-          
-          try {
-            // Check if claim already exists to avoid duplicates
-            const existingClaim = await this.prizeClaimsService.getUserClaimForContest(
-              contestId,
-              entry.userId
-            );
-
-            if (!existingClaim) {
-              this.logger.log(`💰 Awarding prize to ${entry.username}...`);
-              
-              // Parse prize amount and add to balance
-              const amountCents = this.parsePrizeAmount(prize);
-              if (amountCents > 0) {
-                await this.balanceService.addBalance(
-                  entry.userId,
-                  amountCents,
-                  'contest_prize',
-                  contestId,
-                  `Contest Prize - "${contestName}" (Rank #${entry.rank}): ${prize}`
-                );
-                
-                // Still create prize claim record for tracking, but it's informational
-                await this.prizeClaimsService.createPrizeClaim(
-                  contestId,
-                  entry.userId,
-                  entry.rank,
-                  prize
-                );
-                
-                claimsCreated++;
-                this.logger.log(`✅ Awarded ${prize} to ${entry.username} (Rank #${entry.rank})`);
-              } else {
-                this.logger.warn(`⚠️ Could not parse prize amount: ${prize}`);
-              }
-            } else {
-              this.logger.log(`✓ Prize already awarded to ${entry.username}`);
-            }
-          } catch (error) {
-            this.logger.error(`❌ Failed to create claim for ${entry.username}:`, error);
-          }
-        }
-      }
-
-      // 4. Mark contest as ended
-      await this.contestsService.updateContest(contestId, { status: 'ended' });
-
-      if (claimsCreated > 0) {
-        this.logger.log(`🎉 Contest "${contestName}" finished! Created ${claimsCreated} prize claims`);
-      } else if (winnersChecked > 0) {
-        this.logger.log(`✅ Contest "${contestName}" finished! All ${winnersChecked} prize claims already existed`);
-      } else {
-        this.logger.warn(`⚠️ Contest "${contestName}" finished! Created ${claimsCreated} prize claims (leaderboard: ${leaderboard.length} entries, winners checked: ${winnersChecked})`);
-      }
-
-      // TODO: Send email notification to admin
-      // TODO: Send email notification to winners
-
-    } catch (error) {
-      this.logger.error(`❌ Failed to finish contest ${contestId}:`, error);
+      this.logger.error(`Failed to recover prizes for "${contestName}" (${contestId}):`, error);
     }
   }
 }

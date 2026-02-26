@@ -211,6 +211,19 @@ create table if not exists public.withdrawals (
 create index if not exists withdrawals_user_id_idx on public.withdrawals (user_id);
 create index if not exists withdrawals_status_idx on public.withdrawals (status);
 
+-- Add transaction_id column for Tron transaction hash (idempotent)
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'withdrawals' 
+    AND column_name = 'transaction_id'
+  ) THEN
+    ALTER TABLE public.withdrawals ADD COLUMN transaction_id text;
+  END IF;
+END $$;
+
 -- Hourly challenges system
 create table if not exists public.hourly_challenges (
   id uuid primary key default gen_random_uuid(),

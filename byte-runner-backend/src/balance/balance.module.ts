@@ -1,12 +1,15 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { BalanceController } from './balance.controller';
 import { BalanceService } from './balance.service';
+import { WithdrawalService } from './withdrawal.service';
 import { FraudPreventionModule } from '../fraud-prevention/fraud-prevention.module';
+import { TronModule } from '../tron/tron.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
-  imports: [forwardRef(() => FraudPreventionModule)],
+  imports: [forwardRef(() => FraudPreventionModule), TronModule, UsersModule],
   controllers: [BalanceController],
-  providers: [BalanceService],
-  exports: [BalanceService],
+  providers: [BalanceService, WithdrawalService],
+  exports: [BalanceService, WithdrawalService],
 })
 export class BalanceModule {}

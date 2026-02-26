@@ -1,6 +1,7 @@
 export default () => ({
   app: {
     port: parseInt(process.env.PORT || '3000', 10),
+    nodeEnv: process.env.NODE_ENV || 'development',
     apiDomain: process.env.API_DOMAIN || 'http://localhost:3000',
     websiteDomain: process.env.WEBSITE_DOMAIN || 'http://localhost:3000',
     appName: process.env.APP_NAME || 'Byte Runner',

@@ -14,12 +14,7 @@ async function bootstrap() {
 
   initSupertokens(configService);
 
-  const apiDomain = configService.get<string>('app.apiDomain');
   const websiteDomain = configService.get<string>('app.websiteDomain');
-  
-  const fs = require('fs');
-  const configLog = JSON.stringify({runId:'backend-debug',location:'main.ts:bootstrap',message:'SuperTokens initialized',data:{apiDomain,websiteDomain,apiBasePath:configService.get('supertokens.apiBasePath'),connectionUri:configService.get('supertokens.connectionUri')?.substring(0,30)+'...'},timestamp:Date.now()}) + '\n';
-  fs.appendFileSync('c:\\Users\\futur\\Projects\\chap\\.cursor\\debug.log', configLog);
 
   const normalizeOrigin = (value?: string): string | null => {
     if (!value) return null;
@@ -52,27 +47,26 @@ async function bootstrap() {
         allowedOrigins.add(parsed.origin);
       }
     } catch {
-      // Ignore malformed origin entries.
+      // ignore malformed origins
     }
   }
 
   const isTrustedPublicOrigin = (origin: string): boolean => {
     try {
-      const parsed = new URL(origin);
-      const hostname = parsed.hostname.toLowerCase();
+      const hostname = new URL(origin).hostname.toLowerCase();
       return hostname === 'byterunner.co' || hostname.endsWith('.byterunner.co');
     } catch {
       return false;
     }
   };
 
-  // Manual CORS middleware that runs FIRST
   app.use((req, res, next) => {
     const requestOrigin = normalizeOrigin(req.headers.origin);
-    
-    const isAllowedOrigin = Boolean(requestOrigin && (allowedOrigins.has(requestOrigin) || isTrustedPublicOrigin(requestOrigin)));
+    const isAllowed = Boolean(
+      requestOrigin && (allowedOrigins.has(requestOrigin) || isTrustedPublicOrigin(requestOrigin)),
+    );
 
-    if (isAllowedOrigin && requestOrigin) {
+    if (isAllowed && requestOrigin) {
       res.header('Access-Control-Allow-Origin', requestOrigin);
       res.header('Vary', 'Origin');
       res.header('Access-Control-Allow-Credentials', 'true');
@@ -80,74 +74,14 @@ async function bootstrap() {
       res.header('Access-Control-Allow-Headers', ['content-type', 'authorization', ...SuperTokens.getAllCORSHeaders()].join(', '));
       res.header('Access-Control-Expose-Headers', ['content-type', ...SuperTokens.getAllCORSHeaders()].join(', '));
     }
-    
+
     if (req.method === 'OPTIONS') {
       return res.sendStatus(200);
     }
-    
+
     next();
   });
 
-  // SuperTokens middleware
-  app.use((req, res, next) => {
-    const traceRefresh = req.url?.startsWith('/auth/session/refresh');
-    const traceAdminCheck = req.url?.startsWith('/contests/admin/check');
-    
-    if (traceRefresh || traceAdminCheck) {
-      const originalEnd = res.end;
-      res.end = function (...args: any[]) {
-        try {
-          const setCookieHeader = res.getHeader('set-cookie');
-          const setCookieCount = Array.isArray(setCookieHeader)
-            ? setCookieHeader.length
-            : setCookieHeader
-              ? 1
-              : 0;
-          const frontToken = res.getHeader('front-token');
-          const exposeHeaders = res.getHeader('access-control-expose-headers');
-          const location = traceRefresh ? 'main.ts:refresh-response' : 'main.ts:admin-check-response';
-          const message = traceRefresh ? 'Refresh response headers' : 'Admin check response headers';
-          console.log(
-            JSON.stringify({
-              runId: 'contest-submit-debug',
-              hypothesisId: 'H7',
-              location,
-              message,
-              data: {
-                url: req.url,
-                statusCode: res.statusCode,
-                origin: req.headers.origin || null,
-                hasCookieHeaderOnRequest: Boolean(req.headers.cookie),
-                setCookieCount,
-                hasFrontToken: Boolean(frontToken),
-                frontTokenPreview: typeof frontToken === 'string' ? frontToken.substring(0, 50) : null,
-                exposeHeadersPreview: typeof exposeHeaders === 'string' ? exposeHeaders.substring(0, 150) : null,
-              },
-              timestamp: Date.now(),
-            }),
-          );
-        } catch {
-          // Ignore debug logging errors
-        }
-        return originalEnd.apply(this, args as any);
-      } as any;
-    }
-
-    if (req.url?.startsWith('/auth')) {
-      const fs = require('fs');
-      const logEntry = JSON.stringify({runId:'backend-debug',location:'main.ts:before-supertokens',message:'Auth request received',data:{url:req.url,method:req.method,headers:{rid:req.headers.rid,fdiVersion:req.headers['fdi-version'],stAuthMode:req.headers['st-auth-mode']},origin:req.headers.origin},timestamp:Date.now()}) + '\n';
-      fs.appendFileSync('c:\\Users\\futur\\Projects\\chap\\.cursor\\debug.log', logEntry);
-      
-      const oldSend = res.send;
-      res.send = function(data) {
-        const logEntry2 = JSON.stringify({runId:'backend-debug',location:'main.ts:after-supertokens',message:'Auth response sent',data:{url:req.url,statusCode:res.statusCode,responsePreview:typeof data === 'string' ? data.substring(0,200) : JSON.stringify(data).substring(0,200)},timestamp:Date.now()}) + '\n';
-        fs.appendFileSync('c:\\Users\\futur\\Projects\\chap\\.cursor\\debug.log', logEntry2);
-        return oldSend.apply(res, arguments);
-      };
-    }
-    next();
-  });
-  
   app.use(middleware());
   app.use(errorHandler());
 

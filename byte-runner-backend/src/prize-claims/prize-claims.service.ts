@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { ContestsService } from '../contests/contests.service';
+import { assertNoDbError, assertNoDbErrorExceptNotFound } from '../common/utils/db.util';
 
 export interface PrizeClaim {
   id: string;
@@ -18,7 +20,11 @@ export interface PrizeClaim {
 
 @Injectable()
 export class PrizeClaimsService {
-  constructor(private readonly supabaseService: SupabaseService) {}
+  constructor(
+    private readonly supabaseService: SupabaseService,
+    @Inject(forwardRef(() => ContestsService))
+    private readonly contestsService: ContestsService,
+  ) {}
 
   private get client() {
     return this.supabaseService.getClient();
@@ -32,71 +38,30 @@ export class PrizeClaimsService {
   ): Promise<PrizeClaim> {
     const { data: claim, error } = await this.client
       .from('prize_claims')
-      .insert({
-        contest_id: contestId,
-        user_id: userId,
-        rank,
-        prize_description: prizeDescription,
-      })
+      .insert({ contest_id: contestId, user_id: userId, rank, prize_description: prizeDescription })
       .select('*')
       .single();
 
-    if (error) {
-      throw new BadRequestException('Failed to create prize claim.');
-    }
-
+    assertNoDbError(error, 'Failed to create prize claim');
     return claim as PrizeClaim;
   }
 
-  async submitClaim(
-    claimId: string,
-    userId: string,
-    contactInfo: Record<string, any>,
-  ): Promise<PrizeClaim> {
-    // First get the claim to check if it exists and get prize details
+  async submitClaim(claimId: string, userId: string, contactInfo: Record<string, any>): Promise<PrizeClaim> {
     const existing = await this.getClaimById(claimId, userId);
-    if (!existing) {
-      throw new BadRequestException('Prize claim not found or does not belong to you.');
-    }
-
-    if (existing.claim_status !== 'pending') {
-      throw new BadRequestException('This prize claim has already been submitted.');
-    }
+    if (!existing) throw new BadRequestException('Prize claim not found or does not belong to you.');
+    if (existing.claim_status !== 'pending') throw new BadRequestException('This prize claim has already been submitted.');
 
     const { data: claim, error } = await this.client
       .from('prize_claims')
-      .update({
-        claim_status: 'submitted',
-        contact_info: contactInfo,
-        submitted_at: new Date().toISOString(),
-      })
+      .update({ claim_status: 'submitted', contact_info: contactInfo, submitted_at: new Date().toISOString() })
       .eq('id', claimId)
       .eq('user_id', userId)
       .select('*')
       .single();
 
-    if (error) {
-      throw new BadRequestException('Failed to submit prize claim.');
-    }
+    assertNoDbError(error, 'Failed to submit prize claim');
 
-    // TODO: Send email notification
-    // For now, just log the details
-    console.log('📧 Prize claim submitted - Email should be sent:', {
-      claimId: claim.id,
-      paymentMethod: contactInfo.payment_method,
-      email: contactInfo.email,
-      prize: claim.prize_description,
-      rank: claim.rank,
-    });
-
-    // Future: Implement email sending
-    // await this.emailService.sendPrizeClaimConfirmation({
-    //   to: contactInfo.email,
-    //   prize: claim.prize_description,
-    //   rank: claim.rank,
-    //   paymentMethod: contactInfo.payment_method,
-    //   usdtWallet: contactInfo.usdt_wallet,
-    // });
+    // TODO: send email confirmation to contactInfo.email
 
     return claim as PrizeClaim;
   }
@@ -108,36 +73,20 @@ export class PrizeClaimsService {
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      throw new BadRequestException('Failed to fetch prize claims.');
-    }
-
-    return data || [];
+    assertNoDbError(error, 'Failed to fetch prize claims');
+    return data ?? [];
   }
 
   async getClaimById(claimId: string, userId?: string): Promise<PrizeClaim | null> {
-    let query = this.client
-      .from('prize_claims')
-      .select('*')
-      .eq('id', claimId);
-
-    if (userId) {
-      query = query.eq('user_id', userId);
-    }
+    let query = this.client.from('prize_claims').select('*').eq('id', claimId);
+    if (userId) query = query.eq('user_id', userId);
 
     const { data, error } = await query.single();
-
-    if (error && error.code !== 'PGRST116') {
-      throw new BadRequestException('Failed to fetch prize claim.');
-    }
-
+    assertNoDbErrorExceptNotFound(error, 'Failed to fetch prize claim');
     return data as PrizeClaim | null;
   }
 
-  async getUserClaimForContest(
-    contestId: string,
-    userId: string,
-  ): Promise<PrizeClaim | null> {
+  async getUserClaimForContest(contestId: string, userId: string): Promise<PrizeClaim | null> {
     const { data, error } = await this.client
       .from('prize_claims')
       .select('*')
@@ -145,10 +94,13 @@ export class PrizeClaimsService {
       .eq('user_id', userId)
       .single();
 
-    if (error && error.code !== 'PGRST116') {
-      throw new BadRequestException('Failed to fetch prize claim.');
-    }
-
+    assertNoDbErrorExceptNotFound(error, 'Failed to fetch prize claim');
     return data as PrizeClaim | null;
+  }
+
+  async getUserClaimForContestBySlug(idOrSlug: string, userId: string): Promise<PrizeClaim | null> {
+    const contest = await this.contestsService.getContestByIdOrSlug(idOrSlug);
+    if (!contest) throw new BadRequestException('Contest not found');
+    return this.getUserClaimForContest(contest.id, userId);
   }
 }

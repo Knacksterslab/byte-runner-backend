@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { SharesService } from '../shares/shares.service';
 
 export interface Badge {
   id: string;
@@ -20,9 +21,26 @@ export interface UserBadge {
   earned_at: string;
 }
 
+const SHARE_BADGES: { id: string; requirement: number }[] = [
+  { id: 'advocate', requirement: 1 },
+  { id: 'promoter', requirement: 5 },
+  { id: 'influencer', requirement: 15 },
+  { id: 'ambassador', requirement: 50 },
+];
+
+const RUN_BADGES: { id: string; requirement: number }[] = [
+  { id: 'newbie', requirement: 1 },
+  { id: 'regular', requirement: 10 },
+  { id: 'veteran', requirement: 50 },
+  { id: 'legend', requirement: 100 },
+];
+
 @Injectable()
 export class BadgesService {
-  constructor(private readonly supabaseService: SupabaseService) {}
+  constructor(
+    private readonly supabaseService: SupabaseService,
+    private readonly sharesService: SharesService,
+  ) {}
 
   private get client() {
     return this.supabaseService.getClient();
@@ -34,8 +52,8 @@ export class BadgesService {
       .select('*')
       .order('requirement_value', { ascending: true });
 
-    if (error) throw new Error('Failed to fetch badges.');
-    return (data || []) as Badge[];
+    if (error) throw new BadRequestException('Failed to fetch badges.');
+    return (data ?? []) as Badge[];
   }
 
   async getUserBadges(userId: string): Promise<any[]> {
@@ -45,20 +63,19 @@ export class BadgesService {
       .eq('user_id', userId)
       .order('earned_at', { ascending: false });
 
-    if (error) throw new Error('Failed to fetch user badges.');
-    return data || [];
+    if (error) throw new BadRequestException('Failed to fetch user badges.');
+    return data ?? [];
   }
 
   async awardBadge(userId: string, badgeId: string): Promise<UserBadge | null> {
-    // Check if user already has this badge
     const { data: existing } = await this.client
       .from('user_badges')
-      .select('*')
+      .select('id')
       .eq('user_id', userId)
       .eq('badge_id', badgeId)
       .single();
 
-    if (existing) return null; // Already has badge
+    if (existing) return null;
 
     const { data: badge, error } = await this.client
       .from('user_badges')
@@ -66,59 +83,33 @@ export class BadgesService {
       .select('*')
       .single();
 
-    if (error) throw new Error('Failed to award badge.');
+    if (error) throw new BadRequestException('Failed to award badge.');
     return badge as UserBadge;
   }
 
   async checkAndAwardBadges(userId: string): Promise<string[]> {
-    const awardedBadges: string[] = [];
-
-    // Get user stats
     const [shares, runs] = await Promise.all([
-      this.getUserShareCount(userId),
+      this.sharesService.getUserShareCount(userId),
       this.getUserRunCount(userId),
     ]);
 
-    // Check social badges (shares)
-    const shareBadges = [
-      { id: 'advocate', requirement: 1 },
-      { id: 'promoter', requirement: 5 },
-      { id: 'influencer', requirement: 15 },
-      { id: 'ambassador', requirement: 50 },
-    ];
+    const awarded: string[] = [];
 
-    for (const badge of shareBadges) {
+    for (const badge of SHARE_BADGES) {
       if (shares >= badge.requirement) {
-        const awarded = await this.awardBadge(userId, badge.id);
-        if (awarded) awardedBadges.push(badge.id);
+        const result = await this.awardBadge(userId, badge.id);
+        if (result) awarded.push(badge.id);
       }
     }
 
-    // Check skill badges (runs)
-    const runBadges = [
-      { id: 'newbie', requirement: 1 },
-      { id: 'regular', requirement: 10 },
-      { id: 'veteran', requirement: 50 },
-      { id: 'legend', requirement: 100 },
-    ];
-
-    for (const badge of runBadges) {
+    for (const badge of RUN_BADGES) {
       if (runs >= badge.requirement) {
-        const awarded = await this.awardBadge(userId, badge.id);
-        if (awarded) awardedBadges.push(badge.id);
+        const result = await this.awardBadge(userId, badge.id);
+        if (result) awarded.push(badge.id);
       }
     }
 
-    return awardedBadges;
-  }
-
-  private async getUserShareCount(userId: string): Promise<number> {
-    const { count } = await this.client
-      .from('shares')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-
-    return count || 0;
+    return awarded;
   }
 
   private async getUserRunCount(userId: string): Promise<number> {
@@ -127,23 +118,19 @@ export class BadgesService {
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId);
 
-    return count || 0;
+    return count ?? 0;
   }
 
   async setFeaturedBadge(userId: string, badgeId: string): Promise<void> {
-    // Verify user has this badge
     const { data: hasBadge } = await this.client
       .from('user_badges')
-      .select('*')
+      .select('id')
       .eq('user_id', userId)
       .eq('badge_id', badgeId)
       .single();
 
-    if (!hasBadge) throw new Error('User does not have this badge.');
+    if (!hasBadge) throw new BadRequestException('User does not have this badge.');
 
-    await this.client
-      .from('users')
-      .update({ featured_badge: badgeId })
-      .eq('id', userId);
+    await this.client.from('users').update({ featured_badge: badgeId }).eq('id', userId);
   }
 }
