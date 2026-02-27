@@ -198,13 +198,14 @@ create table if not exists public.withdrawals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
   amount_cents integer not null,
-  payment_method text not null, -- 'app_store', 'google_play', 'usdt'
+  payment_method text not null, -- 'amazon_gift_card', 'app_store', 'google_play', 'usdt'
   contact_info jsonb not null,
   status text not null default 'pending', -- 'pending', 'approved', 'paid', 'rejected'
   submitted_at timestamptz not null default now(),
   reviewed_at timestamptz,
   reviewed_by text,
-  notes text,
+  notes text,                    -- internal admin notes
+  payment_details text,          -- user-facing: gift card code, Tron TX link, etc.
   created_at timestamptz not null default now()
 );
 
@@ -221,6 +222,19 @@ BEGIN
     AND column_name = 'transaction_id'
   ) THEN
     ALTER TABLE public.withdrawals ADD COLUMN transaction_id text;
+  END IF;
+END $$;
+
+-- Add payment_details column for user-facing payout info (gift card codes, TX links, etc.) (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+    AND table_name = 'withdrawals'
+    AND column_name = 'payment_details'
+  ) THEN
+    ALTER TABLE public.withdrawals ADD COLUMN payment_details text;
   END IF;
 END $$;
 

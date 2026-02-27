@@ -1,10 +1,24 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 import { SupertokensGuard } from '../auth/supertokens.guard';
 import { AdminGuard } from '../auth/admin.guard';
 import { BalanceService, BalanceTransaction } from './balance.service';
 import { WithdrawalService } from './withdrawal.service';
 import { CurrentUserId } from '../common/decorators/current-user.decorator';
 import { SubmitWithdrawalDto } from './dto/submit-withdrawal.dto';
+
+class AdminUpdateWithdrawalDto {
+  @IsIn(['approved', 'paid', 'rejected'])
+  status: 'approved' | 'paid' | 'rejected';
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @IsString()
+  @IsOptional()
+  paymentDetails?: string;
+}
 
 function mapTransaction(t: BalanceTransaction) {
   return {
@@ -13,6 +27,24 @@ function mapTransaction(t: BalanceTransaction) {
     type: t.type,
     description: t.description,
     createdAt: t.created_at,
+  };
+}
+
+function mapWithdrawal(w: any) {
+  return {
+    id: w.id,
+    userId: w.user_id,
+    amountCents: w.amount_cents,
+    paymentMethod: w.payment_method,
+    contactInfo: w.contact_info,
+    status: w.status,
+    submittedAt: w.submitted_at,
+    reviewedAt: w.reviewed_at,
+    reviewedBy: w.reviewed_by,
+    notes: w.notes,
+    paymentDetails: w.payment_details,
+    transactionId: w.transaction_id,
+    createdAt: w.created_at,
   };
 }
 
@@ -59,36 +91,31 @@ export class BalanceController {
       body.paymentMethod,
       body.contactInfo,
     );
-    return {
-      id: withdrawal.id,
-      amountCents: withdrawal.amount_cents,
-      paymentMethod: withdrawal.payment_method,
-      status: withdrawal.status,
-      submittedAt: withdrawal.submitted_at,
-    };
+    return mapWithdrawal(withdrawal);
   }
 
   @UseGuards(SupertokensGuard)
   @Get('withdrawals')
   async getMyWithdrawals(@CurrentUserId() userId: string) {
     const withdrawals = await this.withdrawalService.getWithdrawals(userId);
-    return {
-      withdrawals: withdrawals.map((w) => ({
-        id: w.id,
-        amountCents: w.amount_cents,
-        paymentMethod: w.payment_method,
-        status: w.status,
-        submittedAt: w.submitted_at,
-        reviewedAt: w.reviewed_at,
-        notes: w.notes,
-      })),
-    };
+    return { withdrawals: withdrawals.map(mapWithdrawal) };
   }
 
   @UseGuards(SupertokensGuard, AdminGuard)
   @Get('admin/withdrawals')
-  getAllWithdrawals(@Query('status') status?: string) {
-    return this.withdrawalService.getAllWithdrawals(status);
+  async getAllWithdrawals(@Query('status') status?: string) {
+    const withdrawals = await this.withdrawalService.getAllWithdrawals(status);
+    return { withdrawals: withdrawals.map(mapWithdrawal) };
+  }
+
+  @UseGuards(SupertokensGuard, AdminGuard)
+  @Patch('admin/withdrawals/:id')
+  async adminUpdateWithdrawal(@Req() req: any, @Body() body: AdminUpdateWithdrawalDto) {
+    const id = req.params.id;
+    if (!id) throw new BadRequestException('Missing withdrawal id');
+    const adminEmail = req.user?.email ?? 'admin';
+    const updated = await this.withdrawalService.adminUpdateWithdrawal(id, body, adminEmail);
+    return mapWithdrawal(updated);
   }
 
   @UseGuards(SupertokensGuard, AdminGuard)

@@ -19,6 +19,7 @@ import { HourlyChallengesModule } from './hourly-challenges/hourly-challenges.mo
 import { FraudPreventionModule } from './fraud-prevention/fraud-prevention.module';
 import { TronModule } from './tron/tron.module';
 import { SponsorsModule } from './sponsors/sponsors.module';
+import { EmailModule } from './email/email.module';
 
 @Injectable()
 class CustomThrottlerGuard extends ThrottlerGuard {
@@ -55,6 +56,7 @@ class CustomThrottlerGuard extends ThrottlerGuard {
     FraudPreventionModule,
     TronModule,
     SponsorsModule,
+    EmailModule,
     BalanceModule,
     HourlyChallengesModule,
   ],

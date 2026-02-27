@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
 import { FraudPreventionService } from '../fraud-prevention/fraud-prevention.service';
 import { TronService } from '../tron/tron.service';
+import { EmailService } from '../email/email.service';
 import { assertNoDbError } from '../common/utils/db.util';
 import { startOfToday } from '../common/utils/date.util';
 
@@ -17,7 +18,15 @@ export interface Withdrawal {
   reviewed_at: string | null;
   reviewed_by: string | null;
   notes: string | null;
+  payment_details: string | null;
+  transaction_id: string | null;
   created_at: string;
+}
+
+export interface UpdateWithdrawalDto {
+  status: 'approved' | 'paid' | 'rejected';
+  notes?: string;
+  paymentDetails?: string;
 }
 
 const MIN_WITHDRAWAL_CENTS = 1000;
@@ -30,6 +39,7 @@ export class WithdrawalService {
     private readonly supabaseService: SupabaseService,
     private readonly fraudPreventionService: FraudPreventionService,
     private readonly tronService: TronService,
+    private readonly emailService: EmailService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -99,6 +109,15 @@ export class WithdrawalService {
     }
 
     await this.fraudPreventionService.updateLastWithdrawal(userId);
+
+    // Fire-and-forget emails — don't block the response
+    this.emailService.sendWithdrawalRequestedToAdmin(withdrawal as Withdrawal).catch((err) =>
+      this.logger.error('Admin notification email failed:', err),
+    );
+    this.emailService.sendWithdrawalReceivedToUser(withdrawal as Withdrawal).catch((err) =>
+      this.logger.error('User confirmation email failed:', err),
+    );
+
     return withdrawal as Withdrawal;
   }
 
@@ -122,6 +141,83 @@ export class WithdrawalService {
     return (data ?? []) as Withdrawal[];
   }
 
+  /** Admin-only: update withdrawal status, notes, and payment details; fires user emails */
+  async adminUpdateWithdrawal(
+    withdrawalId: string,
+    dto: UpdateWithdrawalDto,
+    adminEmail: string,
+  ): Promise<Withdrawal> {
+    const { data: existing, error: fetchErr } = await this.client
+      .from('withdrawals')
+      .select('*')
+      .eq('id', withdrawalId)
+      .single();
+
+    if (fetchErr || !existing) {
+      throw new BadRequestException('Withdrawal not found');
+    }
+
+    const updates: any = {
+      status: dto.status,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: adminEmail,
+    };
+    if (dto.notes !== undefined) updates.notes = dto.notes;
+    if (dto.paymentDetails !== undefined) updates.payment_details = dto.paymentDetails;
+
+    const { data, error } = await this.client
+      .from('withdrawals')
+      .update(updates)
+      .eq('id', withdrawalId)
+      .select('*')
+      .single();
+
+    assertNoDbError(error, 'Failed to update withdrawal');
+    const updated = data as Withdrawal;
+
+    if (dto.status === 'paid') {
+      this.emailService.sendWithdrawalPaidToUser(updated).catch((err) =>
+        this.logger.error('Paid notification email failed:', err),
+      );
+    } else if (dto.status === 'rejected') {
+      // Restore the user's balance when rejected
+      await this.restoreBalance(updated);
+      this.emailService.sendWithdrawalRejectedToUser(updated).catch((err) =>
+        this.logger.error('Rejected notification email failed:', err),
+      );
+    }
+
+    return updated;
+  }
+
+  private async restoreBalance(withdrawal: Withdrawal): Promise<void> {
+    try {
+      const { data: user } = await this.client
+        .from('users')
+        .select('balance_cents')
+        .eq('id', withdrawal.user_id)
+        .single();
+
+      if (!user) return;
+
+      await this.client
+        .from('users')
+        .update({ balance_cents: user.balance_cents + withdrawal.amount_cents })
+        .eq('id', withdrawal.user_id);
+
+      await this.client.from('balance_transactions').insert({
+        user_id: withdrawal.user_id,
+        amount_cents: withdrawal.amount_cents,
+        type: 'withdrawal_refund',
+        reference_id: withdrawal.id,
+        description: `Withdrawal rejected — refunded`,
+      });
+    } catch (err) {
+      this.logger.error(`Failed to restore balance for withdrawal ${withdrawal.id}:`, err);
+    }
+  }
+
+  /** Internal: used by processUsdtWithdrawal to update status (no email — USDT auto uses its own flow) */
   async updateWithdrawalStatus(
     withdrawalId: string,
     status: string,
@@ -150,7 +246,7 @@ export class WithdrawalService {
     if (withdrawal.status !== 'approved') {
       return { success: false, error: `Withdrawal status is ${withdrawal.status}, not approved` };
     }
-    if (withdrawal.payment_method !== 'USDT') {
+    if (withdrawal.payment_method !== 'usdt') {
       return { success: false, error: 'Only USDT withdrawals can be auto-processed' };
     }
 
@@ -168,18 +264,30 @@ export class WithdrawalService {
     try {
       const result = await this.tronService.sendUsdt(tronAddress, amountUsdt);
 
-      const finalStatus = result.success ? 'completed' : 'failed';
+      const finalStatus = result.success ? 'paid' : 'failed';
       const notes = result.success
         ? `Sent ${amountUsdt} USDT to ${tronAddress}. TxID: ${result.txId}`
         : `Transaction failed: ${result.error}. TxID: ${result.txId ?? 'N/A'}`;
+      const explorerUrl = result.txId ? this.tronService.getExplorerUrl(result.txId) : null;
 
       await this.client
         .from('withdrawals')
-        .update({ status: finalStatus, transaction_id: result.txId, notes, reviewed_at: new Date().toISOString(), reviewed_by: 'system-auto' })
+        .update({
+          status: finalStatus,
+          transaction_id: result.txId,
+          payment_details: explorerUrl,
+          notes,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: 'system-auto',
+        })
         .eq('id', withdrawalId);
 
       if (result.success) {
-        this.logger.log(`Withdrawal ${withdrawalId} completed. TxID: ${result.txId} — ${this.tronService.getExplorerUrl(result.txId!)}`);
+        this.logger.log(`Withdrawal ${withdrawalId} completed. TxID: ${result.txId} — ${explorerUrl}`);
+        const updated = { ...withdrawal, status: finalStatus, transaction_id: result.txId, payment_details: explorerUrl } as Withdrawal;
+        this.emailService.sendWithdrawalPaidToUser(updated).catch((err) =>
+          this.logger.error('USDT paid email failed:', err),
+        );
       } else {
         this.logger.error(`Withdrawal ${withdrawalId} failed: ${result.error}`);
       }
@@ -202,7 +310,7 @@ export class WithdrawalService {
       .from('withdrawals')
       .select('id')
       .eq('status', 'approved')
-      .eq('payment_method', 'USDT');
+      .eq('payment_method', 'usdt');
 
     if (error || !withdrawals?.length) return { processed: 0, successful: 0, failed: 0 };
 
@@ -225,8 +333,8 @@ export class WithdrawalService {
     const { data } = await this.client
       .from('withdrawals')
       .select('amount_cents')
-      .eq('payment_method', 'USDT')
-      .eq('status', 'completed')
+      .eq('payment_method', 'usdt')
+      .eq('status', 'paid')
       .gte('created_at', startOfToday().toISOString());
 
     const todayTotal = (data?.reduce((sum, w) => sum + w.amount_cents, 0) ?? 0) / 100;
