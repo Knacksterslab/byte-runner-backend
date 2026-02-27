@@ -39,7 +39,15 @@ export class TronService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    await this.verifyConnection();
+    if (!this.config.hotWalletAddress) {
+      this.logger.warn('TRON_HOT_WALLET_ADDRESS is not configured — Tron payments disabled');
+      return;
+    }
+    try {
+      await this.verifyConnection();
+    } catch (error) {
+      this.logger.error('TronWeb startup check failed — Tron payments will be unavailable:', error.message);
+    }
   }
 
   onModuleDestroy() {
@@ -127,6 +135,9 @@ export class TronService implements OnModuleInit, OnModuleDestroy {
 
   async sendUsdt(toAddress: string, amountUsdt: number): Promise<TransactionResult> {
     try {
+      if (!this.config.hotWalletAddress) {
+        return { success: false, error: 'Tron hot wallet is not configured on this server' };
+      }
       if (amountUsdt <= 0) return { success: false, error: 'Amount must be greater than 0' };
 
       if (amountUsdt > this.config.maxSinglePayoutUsdt) {
