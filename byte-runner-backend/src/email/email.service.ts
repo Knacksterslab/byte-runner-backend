@@ -19,7 +19,7 @@ export class EmailService {
   constructor(private readonly configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY', '');
     this.resend = new Resend(apiKey);
-    this.from = this.configService.get<string>('EMAIL_FROM', 'updates@byterunner.co');
+    this.from = this.configService.get<string>('EMAIL_FROM', 'noreply@updates.byterunner.co');
     this.adminEmail = this.configService.get<string>('ADMIN_NOTIFICATION_EMAIL', 'connect@byterunner.co');
   }
 
@@ -39,6 +39,7 @@ export class EmailService {
     const method = this.methodLabel(withdrawal.payment_method);
     const email = withdrawal.contact_info?.email ?? 'N/A';
     const tronAddress = withdrawal.contact_info?.tron_address ?? null;
+    const storeRegion = withdrawal.contact_info?.store_region ?? null;
 
     const html = `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#111;color:#eee;padding:24px;border-radius:8px;">
@@ -46,6 +47,7 @@ export class EmailService {
         <table style="width:100%;border-collapse:collapse;">
           <tr><td style="padding:8px 0;color:#aaa;width:160px;">Amount</td><td style="padding:8px 0;font-weight:bold;color:#fff;">$${amount}</td></tr>
           <tr><td style="padding:8px 0;color:#aaa;">Method</td><td style="padding:8px 0;color:#fff;">${method}</td></tr>
+          ${storeRegion ? `<tr><td style="padding:8px 0;color:#aaa;">Store Region</td><td style="padding:8px 0;color:#fbbf24;font-weight:bold;">${storeRegion}</td></tr>` : ''}
           <tr><td style="padding:8px 0;color:#aaa;">User Email</td><td style="padding:8px 0;color:#fff;">${email}</td></tr>
           ${tronAddress ? `<tr><td style="padding:8px 0;color:#aaa;">Tron Address</td><td style="padding:8px 0;color:#fff;font-family:monospace;font-size:13px;">${tronAddress}</td></tr>` : ''}
           <tr><td style="padding:8px 0;color:#aaa;">Submitted</td><td style="padding:8px 0;color:#fff;">${new Date(withdrawal.submitted_at).toLocaleString()}</td></tr>
