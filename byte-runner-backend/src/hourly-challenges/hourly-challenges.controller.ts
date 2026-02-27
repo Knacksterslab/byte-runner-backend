@@ -13,7 +13,8 @@ export class HourlyChallengesController {
 
   @Get('current')
   async getCurrentChallenge() {
-    const challenge = await this.hourlyChallengesService.getCurrentChallenge();
+    const hourStart = this.hourlyChallengesService.getCurrentHourTimestamp();
+    const challenge = await this.hourlyChallengesService.getOrCreateChallengeByHour(hourStart);
     if (!challenge) return { challenge: null, message: 'No active challenge found' };
 
     return {
