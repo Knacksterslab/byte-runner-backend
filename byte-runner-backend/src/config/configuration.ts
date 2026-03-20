@@ -32,4 +32,8 @@ export default () => ({
   admin: {
     emails: process.env.ADMIN_EMAILS?.split(',') || [],
   },
+  sponsors: {
+    trackingTokenSecret: process.env.SPONSOR_TRACKING_TOKEN_SECRET || process.env.RUN_TOKEN_SECRET || '',
+    trackingTokenTtlSeconds: parseInt(process.env.SPONSOR_TRACKING_TOKEN_TTL_SECONDS || '7200', 10),
+  },
 });

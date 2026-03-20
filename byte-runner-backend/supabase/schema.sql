@@ -274,3 +274,99 @@ create table if not exists public.fraud_flags (
 
 create index if not exists fraud_flags_user_id_idx on public.fraud_flags (user_id, created_at desc);
 create index if not exists fraud_flags_severity_idx on public.fraud_flags (severity desc);
+
+-- Sponsored ads system
+create table if not exists public.sponsors (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name text not null,
+  legal_name text,
+  status text not null default 'active' check (status in ('active', 'paused', 'archived')),
+  allowed_domains text[] not null default '{}',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.sponsor_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  sponsor_id uuid not null references public.sponsors(id) on delete cascade,
+  name text not null,
+  status text not null default 'draft' check (status in ('draft', 'active', 'paused', 'archived')),
+  starts_at timestamptz not null default now(),
+  ends_at timestamptz,
+  priority integer not null default 0,
+  pacing_mode text not null default 'balanced' check (pacing_mode in ('balanced', 'frontloaded')),
+  daily_budget_cents integer,
+  total_budget_cents integer,
+  daily_impression_cap integer,
+  total_impression_cap integer,
+  frequency_cap_per_user_per_day integer not null default 5,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (ends_at is null or ends_at > starts_at),
+  check (daily_budget_cents is null or daily_budget_cents >= 0),
+  check (total_budget_cents is null or total_budget_cents >= 0),
+  check (daily_impression_cap is null or daily_impression_cap >= 0),
+  check (total_impression_cap is null or total_impression_cap >= 0),
+  check (frequency_cap_per_user_per_day >= 0)
+);
+
+create table if not exists public.sponsor_creatives (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null references public.sponsor_campaigns(id) on delete cascade,
+  tag text,
+  logo text,
+  title text not null,
+  description text not null,
+  cta_label text,
+  cta_url text not null,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  check (cta_url ~* '^https?://')
+);
+
+create table if not exists public.campaign_targeting (
+  id uuid primary key default gen_random_uuid(),
+  campaign_id uuid not null unique references public.sponsor_campaigns(id) on delete cascade,
+  threat_ids text[] not null default '{}',
+  kit_types text[] not null default '{}',
+  countries text[] not null default '{}',
+  platforms text[] not null default '{}',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.ad_events (
+  id uuid primary key default gen_random_uuid(),
+  sponsor_id uuid not null references public.sponsors(id) on delete cascade,
+  campaign_id uuid not null references public.sponsor_campaigns(id) on delete cascade,
+  creative_id uuid not null references public.sponsor_creatives(id) on delete cascade,
+  user_id uuid references public.users(id) on delete set null,
+  event_type text not null check (event_type in ('impression', 'click')),
+  idempotency_key text,
+  session_id text,
+  threat_id text,
+  kit_type text,
+  metadata jsonb not null default '{}'::jsonb,
+  occurred_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists sponsors_slug_idx on public.sponsors (slug);
+create index if not exists sponsors_status_idx on public.sponsors (status);
+create index if not exists sponsor_campaigns_sponsor_id_idx on public.sponsor_campaigns (sponsor_id);
+create index if not exists sponsor_campaigns_status_idx on public.sponsor_campaigns (status);
+create index if not exists sponsor_campaigns_window_idx on public.sponsor_campaigns (starts_at, ends_at);
+create index if not exists sponsor_creatives_campaign_id_idx on public.sponsor_creatives (campaign_id);
+create index if not exists sponsor_creatives_active_idx on public.sponsor_creatives (is_active);
+create index if not exists ad_events_campaign_time_idx on public.ad_events (campaign_id, occurred_at desc);
+create index if not exists ad_events_creative_time_idx on public.ad_events (creative_id, occurred_at desc);
+create index if not exists ad_events_user_time_idx on public.ad_events (user_id, occurred_at desc);
+create index if not exists ad_events_type_time_idx on public.ad_events (event_type, occurred_at desc);
+create unique index if not exists ad_events_type_idempotency_unique
+  on public.ad_events (event_type, idempotency_key)
+  where idempotency_key is not null;
