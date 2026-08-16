@@ -57,18 +57,25 @@ Click on **"Variables"** tab and add these:
 
 ### Required Variables
 
+> The canonical, annotated list lives in `byte-runner-backend/.env.example` —
+> copy values from your local `.env` into Railway.
+
 ```bash
 # App Configuration
 NODE_ENV=production
 PORT=4000
+API_DOMAIN=https://your-backend-url   # Railway domain, added after first deploy
 
-# Supabase (copy from your byte-runner-backend/.env)
+# Supabase (service_role key, NOT the anon key — copy from your .env)
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 
 # SuperTokens (copy from your .env)
 SUPERTOKENS_CONNECTION_URI=https://your-supertokens-instance.com
 SUPERTOKENS_API_KEY=your_supertokens_api_key
+
+# Run/scoring tokens — REQUIRED (generate: openssl rand -hex 32)
+RUN_TOKEN_SECRET=your_long_random_secret
 
 # Frontend URL (your Vercel deployment)
 WEBSITE_DOMAIN=https://your-app.vercel.app
@@ -238,7 +245,8 @@ await app.listen(port);
 ### Issue 6: Database Connection Fails
 
 **Check:**
-- ✅ `SUPABASE_URL` and `SUPABASE_KEY` are correct
+- ✅ `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are correct
+- ✅ `RUN_TOKEN_SECRET` is set (runs fail to sign without it)
 - ✅ Supabase project is not paused (free tier pauses after inactivity)
 - ✅ Check Supabase dashboard for connection issues
 
@@ -320,7 +328,7 @@ If you want staging + production:
 3. ✅ **Document your URLs** - Save Railway & Vercel URLs
 4. ✅ **Set up backups** - Supabase handles this automatically
 5. ✅ **Plan scaling** - Monitor usage for first month
-6. ✅ **Email setup** - Implement prize claim notifications (see EMAIL_SETUP_TODO.md)
+6. ✅ **Email setup** - Prize claim notifications use the Resend integration (set RESEND_API_KEY / EMAIL_FROM; see .env.example)
 
 ---
 
@@ -340,7 +348,7 @@ If you want staging + production:
 ### Support Resources
 - Railway Docs: https://docs.railway.app
 - Railway Discord: https://discord.gg/railway
-- Your documentation: `EMAIL_SETUP_TODO.md`, `PRIZE_CLAIM_IMPLEMENTATION.md`
+- Your documentation: `byte-runner-backend/README.md`, `.env.example`
 
 ---
 
