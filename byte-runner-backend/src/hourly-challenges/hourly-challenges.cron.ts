@@ -17,6 +17,10 @@ export class HourlyChallengesCron {
 
   @Cron('0 * * * *')
   async processHourlyChallenge() {
+    // Disabled by default — the Daily Incident is the single time-boxed
+    // anchor (and this cron auto-pays $1/hour, a live liability with no
+    // users). Re-enable with HOURLY_CHALLENGES_ENABLED=true.
+    if (process.env.HOURLY_CHALLENGES_ENABLED !== 'true') return
     try {
       await this.processPreviousHour();
       await this.hourlyChallengesService.ensureCurrentHourExists();
