@@ -370,3 +370,22 @@ create index if not exists ad_events_type_time_idx on public.ad_events (event_ty
 create unique index if not exists ad_events_type_idempotency_unique
   on public.ad_events (event_type, idempotency_key)
   where idempotency_key is not null;
+
+-- ─────────────────────────────────────────────────────────────
+-- Daily Incident challenges (one seeded challenge per UTC day)
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.daily_challenges (
+  id uuid primary key default gen_random_uuid(),
+  challenge_date date not null unique,
+  name text not null,
+  description text not null,
+  modifiers jsonb not null default '{"boostedThreats":[],"scarceKits":[]}'::jsonb,
+  status text not null default 'active', -- 'active', 'ended'
+  winner_user_id uuid references public.users(id),
+  winner_run_id uuid references public.runs(id),
+  winner_score integer,
+  created_at timestamptz not null default now(),
+  ended_at timestamptz
+);
+
+create index if not exists idx_daily_challenges_date on public.daily_challenges (challenge_date desc);

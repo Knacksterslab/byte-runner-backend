@@ -44,6 +44,9 @@ This API uses Supertokens email/password.
 - `POST /runs/start` — get run token (requires session)
 - `POST /runs/finish` — submit run (requires session)
 - `GET /leaderboard/current?limit=50` — last 24h leaderboard
+- `GET /hourly-challenges/current` — active hourly challenge
+- `GET /daily-challenges/current` — today's seeded Daily Incident (modifiers, leaderboard; personal best/streak when authed)
+- `GET /daily-challenges/leaderboard?date=YYYY-MM-DD` — daily leaderboard
 
 ### Docker (optional)
 
