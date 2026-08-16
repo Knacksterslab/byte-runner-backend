@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
 # Copy package files
@@ -16,7 +16,7 @@ RUN npm run build
 # Verify build succeeded
 RUN ls -la dist/ && test -f dist/main.js
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 # Copy package files
