@@ -234,11 +234,8 @@ export class DailyChallengesService {
     return streak;
   }
 
-  /** Cron: close out yesterday — record its winner (no payout; badge-worthy). */
-  async closeOutDay(dateKey: string): Promise<void> {
-    const challenge = await this.getByDate(dateKey);
-    if (!challenge || challenge.status !== 'active') return;
-
+  /** Top N runs for a date (id/user/score/distance), best per user. */
+  async getTopRunsForDate(dateKey: string, n = 3): Promise<any[]> {
     const start = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
     const end = new Date(`${dateKey}T23:59:59.999Z`).toISOString();
     const { data, error } = await this.client
@@ -248,14 +245,50 @@ export class DailyChallengesService {
       .lte('created_at', end)
       .order('score', { ascending: false })
       .order('distance', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(200);
+    if (error) {
+      this.logger.error('Error fetching top daily runs:', error);
+      return [];
+    }
+    const best = getBestScorePerUser(data ?? []);
+    return Array.from(best.values()).slice(0, n);
+  }
 
-    const winner = error ? null : data;
+  /**
+   * Cron: close out yesterday — award points to the top 3 (100/50/25, where
+   * 1 point = 1 cent in the balance ledger) after fraud checks, and record
+   * the winner. Ineligible players are skipped, not shifted up.
+   */
+  async closeOutDay(
+    dateKey: string,
+    awardPoints?: (userId: string, points: number, reason: string) => Promise<boolean>,
+    isEligible?: (userId: string) => Promise<{ eligible: boolean; reason?: string }>,
+  ): Promise<void> {
+    const challenge = await this.getByDate(dateKey);
+    if (!challenge || challenge.status !== 'active') return;
+
+    const top = await this.getTopRunsForDate(dateKey, 3);
+    const tiers = [100, 50, 25];
+    let anyPaid = false;
+    let winner: any = null;
+
+    for (let i = 0; i < top.length && i < tiers.length; i++) {
+      const entry = top[i];
+      if (!winner) winner = entry;
+      if (!awardPoints || !isEligible) continue;
+      const eligibility = await isEligible(entry.user_id);
+      if (!eligibility.eligible) {
+        this.logger.warn(`Daily rank ${i + 1} (${entry.user_id}) ineligible: ${eligibility.reason}`);
+        continue;
+      }
+      const ok = await awardPoints(entry.user_id, tiers[i]!, `Daily Incident #${i + 1} — ${challenge.name} (${dateKey})`);
+      if (ok) anyPaid = true;
+    }
+
     const { error: updateError } = await this.client
       .from('daily_challenges')
       .update({
-        status: 'ended',
+        status: anyPaid ? 'paid' : 'ended',
         winner_user_id: winner?.user_id ?? null,
         winner_run_id: winner?.id ?? null,
         winner_score: winner?.score ?? null,
