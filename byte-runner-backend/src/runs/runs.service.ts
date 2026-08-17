@@ -8,6 +8,7 @@ import { getBestScorePerUser, rankEntries } from '../common/utils/scores.util';
 import { hoursAgo } from '../common/utils/date.util';
 import * as jwt from 'jsonwebtoken';
 import { FinishRunDto } from './dto/finish-run.dto';
+import { resolveLure, InvalidLureError } from '../daily-challenges/phish-kit.resolver';
 
 interface RunTokenPayload {
   sub: string;
@@ -94,10 +95,30 @@ export class RunsService {
     const durationMs = Math.max(dto.durationMs, serverDurationMs);
     const durationSeconds = Math.max(1, Math.ceil(durationMs / 1000));
 
-    if (dto.score > this.maxScorePerSecond * durationSeconds) {
+    // Phish Kit: the client submits part IDs — the server resolves the score
+    // deterministically and ignores any client-claimed score.
+    let score = dto.score;
+    let distance = dto.distance;
+    const mechanic = dto.mechanic === 'phishkit' ? 'phishkit' : 'runner';
+    if (mechanic === 'phishkit') {
+      if (!Array.isArray(dto.parts) || dto.parts.length !== 4) {
+        throw new BadRequestException('Phish Kit runs require exactly 4 part IDs.');
+      }
+      const dateKey = new Date().toISOString().slice(0, 10);
+      try {
+        const resolution = resolveLure(dateKey, dto.parts);
+        score = resolution.score;
+        distance = 0;
+      } catch (err) {
+        if (err instanceof InvalidLureError) throw new BadRequestException(err.message);
+        throw err;
+      }
+    }
+
+    if (score > this.maxScorePerSecond * durationSeconds) {
       throw new BadRequestException('Score exceeds maximum allowed rate.');
     }
-    if (dto.distance > this.maxDistancePerSecond * durationSeconds) {
+    if (distance > this.maxDistancePerSecond * durationSeconds) {
       throw new BadRequestException('Distance exceeds maximum allowed rate.');
     }
 
@@ -105,25 +126,28 @@ export class RunsService {
 
     const { data, error } = await this.client
       .from('runs')
-      .insert({ user_id: user.id, score: dto.score, distance: dto.distance, duration_ms: durationMs, client_version: dto.clientVersion ?? null })
+      .insert({ user_id: user.id, score, distance, duration_ms: durationMs, mechanic, client_version: dto.clientVersion ?? null })
       .select('id, score, distance, duration_ms, created_at')
       .single();
 
     if (error || !data) throw new BadRequestException('Failed to submit run.');
 
     const enteredContests: string[] = [];
-    try {
-      const activeContests = await this.contestsService.getActiveContests();
-      for (const contest of activeContests) {
-        try {
-          await this.contestsService.enterContest(contest.id, user.id, data.id, dto.score, dto.distance);
-          enteredContests.push(contest.name);
-        } catch {
-          // expected for duplicate entries or closed contests — not an error
+    // Only runner runs enter (runner-flavoured) contests — score scales differ.
+    if (mechanic === 'runner') {
+      try {
+        const activeContests = await this.contestsService.getActiveContests();
+        for (const contest of activeContests) {
+          try {
+            await this.contestsService.enterContest(contest.id, user.id, data.id, score, distance);
+            enteredContests.push(contest.name);
+          } catch {
+            // expected for duplicate entries or closed contests — not an error
+          }
         }
+      } catch (err) {
+        this.logger.warn('Failed to auto-enter contests:', err);
       }
-    } catch (err) {
-      this.logger.warn('Failed to auto-enter contests:', err);
     }
 
     this.badgesService.checkAndAwardBadges(user.id).catch((err) =>

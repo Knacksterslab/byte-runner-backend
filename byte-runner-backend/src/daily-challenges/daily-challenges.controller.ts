@@ -14,12 +14,13 @@ export class DailyChallengesController {
   async getCurrent(@Req() req: { user?: { id?: string } }) {
     const date = this.dailyChallengesService.todayKey();
     const challenge = await this.dailyChallengesService.getOrCreateChallengeByDate(date);
-    const leaderboard = await this.dailyChallengesService.getLeaderboardForDate(date);
+    const mechanic = challenge?.mechanic ?? 'runner';
+    const leaderboard = await this.dailyChallengesService.getLeaderboardForDate(date, 10, mechanic);
 
     const userId = req.user?.id ?? null;
     const [myBest, myStreak] = userId
       ? await Promise.all([
-          this.dailyChallengesService.getUserBestForDate(userId, date),
+          this.dailyChallengesService.getUserBestForDate(userId, date, mechanic),
           this.dailyChallengesService.getUserStreak(userId),
         ])
       : [null, 0];
@@ -30,6 +31,7 @@ export class DailyChallengesController {
             date: challenge.challenge_date,
             name: challenge.name,
             description: challenge.description,
+            mechanic,
             modifiers: challenge.modifiers,
             status: challenge.status,
             endsAt: this.dailyChallengesService.endOfDayIso(),
@@ -44,9 +46,11 @@ export class DailyChallengesController {
   @Get('leaderboard')
   async getLeaderboard(@Query('date') date?: string, @Query('limit') limit?: string) {
     const day = date ?? this.dailyChallengesService.todayKey();
+    const challenge = await this.dailyChallengesService.getByDate(day);
     const leaderboard = await this.dailyChallengesService.getLeaderboardForDate(
       day,
       limit ? Math.min(parseInt(limit, 10) || 10, 50) : 10,
+      challenge?.mechanic,
     );
     return { date: day, leaderboard };
   }

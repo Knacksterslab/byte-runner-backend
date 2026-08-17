@@ -379,6 +379,7 @@ create table if not exists public.daily_challenges (
   challenge_date date not null unique,
   name text not null,
   description text not null,
+  mechanic text not null default 'runner',
   modifiers jsonb not null default '{"boostedThreats":[],"scarceKits":[]}'::jsonb,
   status text not null default 'active', -- 'active', 'ended'
   winner_user_id uuid references public.users(id),
@@ -389,3 +390,13 @@ create table if not exists public.daily_challenges (
 );
 
 create index if not exists idx_daily_challenges_date on public.daily_challenges (challenge_date desc);
+
+-- ─────────────────────────────────────────────────────────────
+-- Migration 2026-08-17: format mechanics (runner | phishkit)
+-- Run once on existing databases (fresh creates get these inline).
+-- ─────────────────────────────────────────────────────────────
+alter table public.daily_challenges
+  add column if not exists mechanic text not null default 'runner';
+alter table public.runs
+  add column if not exists mechanic text not null default 'runner';
+create index if not exists idx_runs_mechanic_created on public.runs (mechanic, created_at desc);

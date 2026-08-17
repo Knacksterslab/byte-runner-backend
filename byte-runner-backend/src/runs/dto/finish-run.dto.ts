@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class FinishRunDto {
   @IsString()
@@ -19,4 +19,15 @@ export class FinishRunDto {
   @IsOptional()
   @IsString()
   clientVersion?: string;
+
+  /** Game format: 'runner' (default) or 'phishkit'. */
+  @IsOptional()
+  @IsString()
+  mechanic?: string;
+
+  /** Phish Kit: the composed lure's part IDs — the server scores from these. */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  parts?: string[];
 }

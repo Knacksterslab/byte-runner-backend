@@ -12,6 +12,8 @@ export interface DailyChallenge {
   challenge_date: string;
   name: string;
   description: string;
+  /** Which game format the day plays: 'runner' | 'phishkit'. */
+  mechanic: string;
   modifiers: DailyModifiers;
   status: string;
   winner_user_id: string | null;
@@ -23,6 +25,7 @@ export interface DailyChallenge {
 interface IncidentArchetype {
   name: string;
   description: string;
+  mechanic: string;
   boostedThreats: string[];
   scarceKits: string[];
 }
@@ -31,42 +34,49 @@ interface IncidentArchetype {
 const INCIDENT_LIBRARY: IncidentArchetype[] = [
   {
     name: 'PHISHING FRENZY',
+    mechanic: 'phishkit',
     description: 'Inbox avalanche: phishing and email-borne threats dominate the net. Watch every sender.',
     boostedThreats: ['phishing', 'email-security'],
     scarceKits: ['vpn-shield'],
   },
   {
     name: 'PASSWORD PANIC',
+    mechanic: 'runner',
     description: 'Credential lists leaked overnight. Password and authentication attacks are everywhere.',
     boostedThreats: ['password', 'authentication'],
     scarceKits: ['patch-manager'],
   },
   {
     name: 'WIFI DEADZONE',
+    mechanic: 'runner',
     description: 'Rogue hotspots everywhere. WiFi and remote-work threats hunt unencrypted traffic.',
     boostedThreats: ['wifi', 'remote-work'],
     scarceKits: ['link-analyzer'],
   },
   {
     name: 'DATA LEAK SPRING',
+    mechanic: 'runner',
     description: 'Insiders and ransomware crews are exfiltrating. Guard your data-loss surfaces.',
     boostedThreats: ['data-loss', 'insider-threats'],
     scarceKits: ['mfa-authenticator'],
   },
   {
     name: 'SUPPLY CHAIN SHOCK',
+    mechanic: 'runner',
     description: 'A vendor was compromised. Update channels and packages are weaponised today.',
     boostedThreats: ['supply-chain', 'updates'],
     scarceKits: ['backup-system'],
   },
   {
     name: 'SOCIAL STORM',
+    mechanic: 'phishkit',
     description: 'Pretexters and meeting crashers are out in force. Trust nothing unverified.',
     boostedThreats: ['social-engineering', 'meeting-security'],
     scarceKits: ['password-manager'],
   },
   {
     name: 'MOBILE MELTDOWN',
+    mechanic: 'runner',
     description: 'Stranded at the airport: removable media and travel threats rule the day.',
     boostedThreats: ['removable-media', 'travel-security'],
     scarceKits: ['privacy-optimizer'],
@@ -120,6 +130,7 @@ export class DailyChallengesService {
         challenge_date: dateKey,
         name: archetype.name,
         description: archetype.description,
+        mechanic: archetype.mechanic,
         modifiers: {
           boostedThreats: archetype.boostedThreats,
           scarceKits: archetype.scarceKits,
@@ -154,6 +165,7 @@ export class DailyChallengesService {
       challenge_date: row.challenge_date,
       name: row.name,
       description: row.description,
+      mechanic: row.mechanic ?? 'runner',
       modifiers: row.modifiers ?? { boostedThreats: [], scarceKits: [] },
       status: row.status,
       winner_user_id: row.winner_user_id ?? null,
@@ -163,14 +175,16 @@ export class DailyChallengesService {
     };
   }
 
-  async getLeaderboardForDate(dateKey: string, limit = 10): Promise<any[]> {
+  async getLeaderboardForDate(dateKey: string, limit = 10, mechanic?: string): Promise<any[]> {
     const start = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
     const end = new Date(`${dateKey}T23:59:59.999Z`).toISOString();
-    const { data, error } = await this.client
+    let query = this.client
       .from('runs')
       .select('user_id, score, distance, created_at, users(username)')
       .gte('created_at', start)
       .lte('created_at', end)
+    if (mechanic) query = query.eq('mechanic', mechanic)
+    const { data, error } = await query
       .order('score', { ascending: false })
       .order('distance', { ascending: false })
       .limit(200);
@@ -192,15 +206,17 @@ export class DailyChallengesService {
       }));
   }
 
-  async getUserBestForDate(userId: string, dateKey: string): Promise<number | null> {
+  async getUserBestForDate(userId: string, dateKey: string, mechanic?: string): Promise<number | null> {
     const start = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
     const end = new Date(`${dateKey}T23:59:59.999Z`).toISOString();
-    const { data, error } = await this.client
+    let query = this.client
       .from('runs')
       .select('score')
       .eq('user_id', userId)
       .gte('created_at', start)
       .lte('created_at', end)
+    if (mechanic) query = query.eq('mechanic', mechanic)
+    const { data, error } = await query
       .order('score', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -235,14 +251,16 @@ export class DailyChallengesService {
   }
 
   /** Top N runs for a date (id/user/score/distance), best per user. */
-  async getTopRunsForDate(dateKey: string, n = 3): Promise<any[]> {
+  async getTopRunsForDate(dateKey: string, n = 3, mechanic?: string): Promise<any[]> {
     const start = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
     const end = new Date(`${dateKey}T23:59:59.999Z`).toISOString();
-    const { data, error } = await this.client
+    let query = this.client
       .from('runs')
       .select('id, user_id, score, distance')
       .gte('created_at', start)
       .lte('created_at', end)
+    if (mechanic) query = query.eq('mechanic', mechanic)
+    const { data, error } = await query
       .order('score', { ascending: false })
       .order('distance', { ascending: false })
       .limit(200);
@@ -267,7 +285,7 @@ export class DailyChallengesService {
     const challenge = await this.getByDate(dateKey);
     if (!challenge || challenge.status !== 'active') return;
 
-    const top = await this.getTopRunsForDate(dateKey, 3);
+    const top = await this.getTopRunsForDate(dateKey, 3, challenge.mechanic);
     const tiers = [100, 50, 25];
     let anyPaid = false;
     let winner: any = null;
