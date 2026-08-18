@@ -30,7 +30,8 @@ export class DrillsController {
 
   @UseGuards(SupertokensGuard)
   @Get('mastery')
-  getMastery(@Req() req: any) {
-    return this.drillsService.getMastery(req.session.getUserId());
+  getMastery(@CurrentUser() user: UserRecord) {
+    // DB user id (≠ supertokens id) — matches the ledger's user_id key
+    return this.drillsService.getMastery(user.id);
   }
 }
