@@ -400,3 +400,35 @@ alter table public.daily_challenges
 alter table public.runs
   add column if not exists mechanic text not null default 'runner';
 create index if not exists idx_runs_mechanic_created on public.runs (mechanic, created_at desc);
+
+-- ─────────────────────────────────────────────────────────────
+-- v2 Curriculum engine: verified learning + mastery ledger
+-- (idempotent — safe on fresh and existing databases)
+-- ─────────────────────────────────────────────────────────────
+create table if not exists public.drill_results (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  day date not null,
+  kind text not null default 'quiz',
+  topic text not null,
+  format text not null default 'quiz',
+  passed boolean not null,
+  score integer not null default 0,
+  duration_ms integer not null default 0,
+  question_id text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_drill_results_user_day on public.drill_results (user_id, day desc);
+
+create table if not exists public.topic_mastery (
+  user_id uuid not null references public.users(id) on delete cascade,
+  topic text not null,
+  taught_count int not null default 0,
+  tested_count int not null default 0,
+  passed_count int not null default 0,
+  failed_count int not null default 0,
+  needs_remediation boolean not null default false,
+  last_passed_at timestamptz,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, topic)
+);

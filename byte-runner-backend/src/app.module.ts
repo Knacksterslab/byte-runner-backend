@@ -17,6 +17,7 @@ import { BadgesModule } from './badges/badges.module';
 import { BalanceModule } from './balance/balance.module';
 import { HourlyChallengesModule } from './hourly-challenges/hourly-challenges.module';
 import { DailyChallengesModule } from './daily-challenges/daily-challenges.module';
+import { DrillsModule } from './drills/drills.module';
 import { FraudPreventionModule } from './fraud-prevention/fraud-prevention.module';
 import { TronModule } from './tron/tron.module';
 import { SponsorsModule } from './sponsors/sponsors.module';
@@ -61,6 +62,7 @@ class CustomThrottlerGuard extends ThrottlerGuard {
     BalanceModule,
     HourlyChallengesModule,
     DailyChallengesModule,
+    DrillsModule,
   ],
   controllers: [AppController],
   providers: [
