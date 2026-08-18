@@ -12,7 +12,7 @@ export interface DailyChallenge {
   challenge_date: string;
   name: string;
   description: string;
-  /** Which game format the day plays: 'runner' | 'phishkit'. */
+  /** Dormant format column (always 'runner' today) — kept for future formats. */
   mechanic: string;
   modifiers: DailyModifiers;
   status: string;
@@ -25,7 +25,6 @@ export interface DailyChallenge {
 interface IncidentArchetype {
   name: string;
   description: string;
-  mechanic: string;
   boostedThreats: string[];
   scarceKits: string[];
 }
@@ -34,49 +33,42 @@ interface IncidentArchetype {
 const INCIDENT_LIBRARY: IncidentArchetype[] = [
   {
     name: 'PHISHING FRENZY',
-    mechanic: 'phishkit',
     description: 'Inbox avalanche: phishing and email-borne threats dominate the net. Watch every sender.',
     boostedThreats: ['phishing', 'email-security'],
     scarceKits: ['vpn-shield'],
   },
   {
     name: 'PASSWORD PANIC',
-    mechanic: 'runner',
     description: 'Credential lists leaked overnight. Password and authentication attacks are everywhere.',
     boostedThreats: ['password', 'authentication'],
     scarceKits: ['patch-manager'],
   },
   {
     name: 'WIFI DEADZONE',
-    mechanic: 'runner',
     description: 'Rogue hotspots everywhere. WiFi and remote-work threats hunt unencrypted traffic.',
     boostedThreats: ['wifi', 'remote-work'],
     scarceKits: ['link-analyzer'],
   },
   {
     name: 'DATA LEAK SPRING',
-    mechanic: 'runner',
     description: 'Insiders and ransomware crews are exfiltrating. Guard your data-loss surfaces.',
     boostedThreats: ['data-loss', 'insider-threats'],
     scarceKits: ['mfa-authenticator'],
   },
   {
     name: 'SUPPLY CHAIN SHOCK',
-    mechanic: 'runner',
     description: 'A vendor was compromised. Update channels and packages are weaponised today.',
     boostedThreats: ['supply-chain', 'updates'],
     scarceKits: ['backup-system'],
   },
   {
     name: 'SOCIAL STORM',
-    mechanic: 'phishkit',
     description: 'Pretexters and meeting crashers are out in force. Trust nothing unverified.',
     boostedThreats: ['social-engineering', 'meeting-security'],
     scarceKits: ['password-manager'],
   },
   {
     name: 'MOBILE MELTDOWN',
-    mechanic: 'runner',
     description: 'Stranded at the airport: removable media and travel threats rule the day.',
     boostedThreats: ['removable-media', 'travel-security'],
     scarceKits: ['privacy-optimizer'],
@@ -130,7 +122,6 @@ export class DailyChallengesService {
         challenge_date: dateKey,
         name: archetype.name,
         description: archetype.description,
-        mechanic: archetype.mechanic,
         modifiers: {
           boostedThreats: archetype.boostedThreats,
           scarceKits: archetype.scarceKits,
