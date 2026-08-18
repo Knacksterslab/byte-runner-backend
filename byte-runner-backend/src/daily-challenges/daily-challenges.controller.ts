@@ -18,12 +18,18 @@ export class DailyChallengesController {
     const leaderboard = await this.dailyChallengesService.getLeaderboardForDate(date, 10, mechanic);
 
     const userId = req.user?.id ?? null;
-    const [myBest, myStreak] = userId
+    const [myBest, myStreak, myLevelToday] = userId
       ? await Promise.all([
           this.dailyChallengesService.getUserBestForDate(userId, date, mechanic),
           this.dailyChallengesService.getUserStreak(userId),
+          this.dailyChallengesService.getBestLevelToday(userId),
         ])
-      : [null, 0];
+      : [null, 0, 0];
+    const targetLevel = challenge?.stages?.targetLevel ?? null;
+    const myCurriculum =
+      userId && targetLevel !== null
+        ? { levelToday: myLevelToday, targetLevel, complete: myLevelToday >= targetLevel }
+        : null;
 
     return {
       challenge: challenge
@@ -40,6 +46,7 @@ export class DailyChallengesController {
       leaderboard,
       myBest,
       myStreak,
+      myCurriculum,
     };
   }
 

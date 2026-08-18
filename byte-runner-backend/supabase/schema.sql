@@ -432,3 +432,11 @@ create table if not exists public.topic_mastery (
   updated_at timestamptz not null default now(),
   primary key (user_id, topic)
 );
+
+-- ─────────────────────────────────────────────────────────────
+-- v2 phase 4: curriculum scheduler (idempotent)
+-- ─────────────────────────────────────────────────────────────
+alter table public.daily_challenges
+  add column if not exists stages jsonb;
+alter table public.runs
+  add column if not exists level int not null default 1;

@@ -105,7 +105,7 @@ export class RunsService {
 
     const { data, error } = await this.client
       .from('runs')
-      .insert({ user_id: user.id, score: dto.score, distance: dto.distance, duration_ms: durationMs, client_version: dto.clientVersion ?? null })
+      .insert({ user_id: user.id, score: dto.score, distance: dto.distance, duration_ms: durationMs, level: Math.min(dto.level ?? 1, 99), client_version: dto.clientVersion ?? null })
       .select('id, score, distance, duration_ms, created_at')
       .single();
 

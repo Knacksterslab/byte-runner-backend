@@ -7,11 +7,20 @@ export interface DailyModifiers {
   scarceKits: string[];
 }
 
+export interface DailyStagePlan {
+  /** Level a zero-failure player should reach today (~3h path). */
+  targetLevel: number;
+  /** Topics today's path emphasizes (from the archetype's boosted threats). */
+  focusTopics: string[];
+  stages: { kind: string; label: string; minutes: number }[];
+}
+
 export interface DailyChallenge {
   id: string;
   challenge_date: string;
   name: string;
   description: string;
+  stages: DailyStagePlan | null;
   /** Dormant format column (always 'runner' today) — kept for future formats. */
   mechanic: string;
   modifiers: DailyModifiers;
@@ -79,6 +88,27 @@ function utcDateKey(d = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Deterministic daily curriculum plan: reach targetLevel N today.
+ * Tunable: with quiz discounts the average player reaches ~L9 in ~2.5-3.5h.
+ */
+function stagePlanForDate(dateKey: string, boostedThreats: string[]): DailyStagePlan {
+  const targetLevel = 8 + (hashString(dateKey + ':target') % 5); // 8..12
+  const topics = boostedThreats.length > 0 ? boostedThreats : ['phishing'];
+  return {
+    targetLevel,
+    focusTopics: topics,
+    stages: [
+      { kind: 'runner-leg', label: `Warm-up: reach level 3`, minutes: 20 },
+      { kind: 'quiz-checkpoint', label: `Checkpoint quiz (level 3)`, minutes: 2 },
+      { kind: 'runner-leg', label: `Push to level ${Math.min(6, targetLevel - 1)}`, minutes: 35 },
+      { kind: 'quiz-checkpoint', label: `Checkpoint quiz (level 6)`, minutes: 2 },
+      { kind: 'runner-leg', label: `The long leg: level ${targetLevel}`, minutes: 80 },
+      { kind: 'drill', label: `Remediation drills (only if you fail a topic)`, minutes: 0 },
+    ],
+  };
+}
+
 function hashString(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -122,6 +152,7 @@ export class DailyChallengesService {
         challenge_date: dateKey,
         name: archetype.name,
         description: archetype.description,
+        stages: stagePlanForDate(dateKey, archetype.boostedThreats),
         modifiers: {
           boostedThreats: archetype.boostedThreats,
           scarceKits: archetype.scarceKits,
@@ -156,6 +187,7 @@ export class DailyChallengesService {
       challenge_date: row.challenge_date,
       name: row.name,
       description: row.description,
+      stages: (row.stages as DailyStagePlan) ?? null,
       mechanic: row.mechanic ?? 'runner',
       modifiers: row.modifiers ?? { boostedThreats: [], scarceKits: [] },
       status: row.status,
@@ -213,6 +245,24 @@ export class DailyChallengesService {
       .maybeSingle();
     if (error || !data) return null;
     return data.score;
+  }
+
+  /** User's best level reached today — curriculum progress. */
+  async getBestLevelToday(userId: string): Promise<number> {
+    const dateKey = this.todayKey();
+    const start = new Date(`${dateKey}T00:00:00.000Z`).toISOString();
+    const end = new Date(`${dateKey}T23:59:59.999Z`).toISOString();
+    const { data, error } = await this.client
+      .from('runs')
+      .select('level')
+      .eq('user_id', userId)
+      .gte('created_at', start)
+      .lte('created_at', end)
+      .order('level', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return 0;
+    return data.level ?? 0;
   }
 
   /** Consecutive UTC days (ending today or yesterday) on which the user has ≥1 run. */

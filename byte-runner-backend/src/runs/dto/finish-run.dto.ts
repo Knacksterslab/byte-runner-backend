@@ -19,4 +19,10 @@ export class FinishRunDto {
   @IsOptional()
   @IsString()
   clientVersion?: string;
+
+  /** Level reached — feeds the daily curriculum tracker. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  level?: number;
 }
