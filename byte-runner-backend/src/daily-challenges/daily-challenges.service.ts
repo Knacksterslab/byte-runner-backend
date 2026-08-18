@@ -178,7 +178,14 @@ export class DailyChallengesService {
       .eq('challenge_date', dateKey)
       .maybeSingle();
     if (error || !data) return null;
-    return this.mapRow(data);
+    const row = this.mapRow(data);
+    // Rows created before the scheduler shipped have no stages — compute the
+    // deterministic plan on read so today's card works without a backfill.
+    if (!row.stages) {
+      const archetype = this.archetypeForDate(dateKey);
+      row.stages = stagePlanForDate(dateKey, archetype.boostedThreats);
+    }
+    return row;
   }
 
   private mapRow(row: any): DailyChallenge {
