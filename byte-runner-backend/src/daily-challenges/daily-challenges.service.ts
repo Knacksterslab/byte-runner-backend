@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { BalanceService } from '../balance/balance.service';
 import { getBestScorePerUser } from '../common/utils/scores.util';
 
 export interface DailyModifiers {
@@ -122,7 +123,10 @@ function hashString(s: string): number {
 export class DailyChallengesService {
   private readonly logger = new Logger(DailyChallengesService.name);
 
-  constructor(private readonly supabase: SupabaseService) {}
+  constructor(
+    private readonly supabase: SupabaseService,
+    private readonly balanceService: BalanceService,
+  ) {}
 
   private get client() {
     return this.supabase.getClient();
@@ -270,6 +274,55 @@ export class DailyChallengesService {
       .maybeSingle();
     if (error || !data) return 0;
     return data.level ?? 0;
+  }
+
+  // ── Earn ledger: $0.20/day for completing today's curriculum ────────────
+
+  /** Daily learn-to-earn credit — exactly one per user per day, ever. */
+  async tryCreditDailyCurriculum(userId: string): Promise<{
+    status: 'credited' | 'already' | 'incomplete' | 'unavailable'
+    points?: number
+    levelToday?: number
+    targetLevel?: number
+  }> {
+    const dateKey = this.todayKey();
+    const challenge = await this.getByDate(dateKey);
+    const targetLevel = challenge?.stages?.targetLevel ?? null;
+    if (!challenge || targetLevel === null) return { status: 'unavailable' };
+
+    const levelToday = await this.getBestLevelToday(userId);
+    if (levelToday < targetLevel) {
+      return { status: 'incomplete', levelToday, targetLevel };
+    }
+
+    // reference_id = the day's challenge row id (uuid column; one row per day
+    // makes it the perfect idempotency key)
+    const already = await this.hasCurriculumCredit(userId, challenge.id);
+    if (already) return { status: 'already', levelToday, targetLevel };
+
+    await this.balanceService.addBalance(
+      userId,
+      20, // $0.20 — the daily learn-to-earn cap, by design
+      'curriculum_daily',
+      challenge.id,
+      `Daily curriculum complete — level ${levelToday}/${targetLevel} (${dateKey})`,
+    );
+    return { status: 'credited', points: 20, levelToday, targetLevel };
+  }
+
+  async hasCurriculumCredit(userId: string, challengeId: string): Promise<boolean> {
+    const { data, error } = await this.supabase.getClient()
+      .from('balance_transactions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('type', 'curriculum_daily')
+      .eq('reference_id', challengeId)
+      .limit(1);
+    if (error) {
+      this.logger.error('Curriculum credit check failed:', error);
+      return true; // fail closed — never double-credit
+    }
+    return (data ?? []).length > 0;
   }
 
   /** Consecutive UTC days (ending today or yesterday) on which the user has ≥1 run. */

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
 import { UserRecord } from '../users/users.service';
 import { ContestsService } from '../contests/contests.service';
+import { DailyChallengesService } from '../daily-challenges/daily-challenges.service';
 import { BadgesService } from '../badges/badges.service';
 import { getBestScorePerUser, rankEntries } from '../common/utils/scores.util';
 import { hoursAgo } from '../common/utils/date.util';
@@ -27,6 +28,7 @@ export class RunsService {
     private readonly supabaseService: SupabaseService,
     private readonly contestsService: ContestsService,
     private readonly badgesService: BadgesService,
+    private readonly dailyChallengesService: DailyChallengesService,
   ) {
     this.runTokenSecret = this.configService.get<string>('runs.runTokenSecret') ?? '';
     this.runTokenTtlSeconds = this.configService.get<number>('runs.runTokenTtlSeconds') ?? 3600;
@@ -130,6 +132,18 @@ export class RunsService {
       this.logger.warn('Badge check failed after run:', err),
     );
 
-    return { ...data, enteredContests };
+    // Learn-to-earn: completing today's curriculum credits on the run that
+    // crosses the target level (idempotent — one credit per user per day).
+    let curriculumReward: { credited: boolean; points: number } | null = null;
+    try {
+      const earn = await this.dailyChallengesService.tryCreditDailyCurriculum(user.id);
+      if (earn.status === 'credited') {
+        curriculumReward = { credited: true, points: earn.points ?? 20 };
+      }
+    } catch (err) {
+      this.logger.warn('Curriculum credit attempt failed:', err);
+    }
+
+    return { ...data, enteredContests, curriculumReward };
   }
 }

@@ -28,7 +28,15 @@ export class DailyChallengesController {
     const targetLevel = challenge?.stages?.targetLevel ?? null;
     const myCurriculum =
       userId && targetLevel !== null
-        ? { levelToday: myLevelToday, targetLevel, complete: myLevelToday >= targetLevel }
+        ? {
+            levelToday: myLevelToday,
+            targetLevel,
+            complete: myLevelToday >= targetLevel,
+            rewardCredited:
+              myLevelToday >= targetLevel && challenge
+                ? await this.dailyChallengesService.hasCurriculumCredit(userId, challenge.id)
+                : false,
+          }
         : null;
 
     return {
