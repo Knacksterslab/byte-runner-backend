@@ -38,6 +38,7 @@ export class DailyChallengesController {
             name: challenge.name,
             description: challenge.description,
             mechanic,
+            stages: challenge.stages,
             modifiers: challenge.modifiers,
             status: challenge.status,
             endsAt: this.dailyChallengesService.endOfDayIso(),
